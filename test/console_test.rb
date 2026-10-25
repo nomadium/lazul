@@ -2,16 +2,23 @@
 
 # Boots the kernel in QEMU and drives the serial console like a user would.
 # Usage: test/console_test.rb [smp] (default: $SMP or 4)
+# "make test" passes the QEMU command line for the architecture being built
+# in $QEMU_CMD; without it, the riscv64 kernel is run.
 
+require "shellwords"
 require "timeout"
 
 SMP = Integer(ARGV[0] || ENV.fetch("SMP", 4))
 # The shell prompt; always written after a newline, so a "=> " that ends a
 # partial read of a reply does not look like it.
 PROMPT = "\r\n> "
-KERNEL = File.expand_path("../build/kernel.elf", __dir__)
-QEMU = %W[qemu-system-riscv64 -machine virt -smp #{SMP} -m 128M -nographic
-  -bios default -kernel #{KERNEL}]
+KERNEL = File.expand_path("../build/riscv64/kernel.elf", __dir__)
+QEMU = if ENV["QEMU_CMD"]
+  Shellwords.split(ENV["QEMU_CMD"])
+else
+  %W[qemu-system-riscv64 -machine virt -smp #{SMP} -m 128M -nographic
+    -bios default -kernel #{KERNEL}]
+end
 
 # Drives the kernel's serial console and counts failed checks.
 class ConsoleTest

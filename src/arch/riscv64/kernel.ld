@@ -7,21 +7,22 @@
  * and a few more described below. The linker (ld, run by gcc in the
  * Makefile's kernel.elf rule) glues the sections of all the objects and
  * libraries together, picks an address for every byte, resolves the
- * references between them and writes build/kernel.elf.
+ * references between them and writes build/riscv64/kernel.elf.
  *
  * This file tells the linker how to do that: which sections go where, in
  * which order, at which addresses, and which extra symbols to define. It
- * is passed with -T src/kernel.ld. Without -T, gcc would use the default
- * script of picolibc (our C library), picolibc.ld, which is laid out for
- * a microcontroller with flash and RAM; a kernel loaded into RAM needs its
- * own. picolibc.specs adds -Tpicolibc.ld only when no -T is given.
+ * is passed with -T src/arch/riscv64/kernel.ld. Without -T, gcc would
+ * use the default script of picolibc (our C library), picolibc.ld, which
+ * is laid out for a microcontroller with flash and RAM; a kernel loaded
+ * into RAM needs its own. picolibc.specs adds -Tpicolibc.ld only when no
+ * -T is given.
  *
  * The result can be checked after every build:
- *   build/kernel.map            written by -Wl,-Map: every input section,
+ *   build/riscv64/kernel.map    written by -Wl,-Map: every input section,
  *                               where it went, and every symbol's address
- *   riscv64-unknown-elf-readelf -lSW build/kernel.elf
+ *   riscv64-unknown-elf-readelf -lSW build/riscv64/kernel.elf
  *                               the sections and segments described below
- *   riscv64-unknown-elf-nm -n build/kernel.elf
+ *   riscv64-unknown-elf-nm -n build/riscv64/kernel.elf
  *                               all symbols, sorted by address
  *
  * Memory map of the kernel as linked (addresses for the default build):
@@ -194,7 +195,7 @@ SECTIONS
    * The compiler puts initialised ones in .tdata and zeroed ones in .tbss.
    * Together they form the *TLS template*: the image every hart's copy
    * starts from. At run time hart_setup() in main.c gives each hart a
-   * block in hart_tls[], and picolibc fills it:
+   * block in hart_tls[], and arch_set_tls() (arch.c) has picolibc fill it:
    *   _init_tls(block)  copies .tdata to the start of the block and zeroes
    *                     the .tbss part after it
    *   _set_tls(block)   points the tp register at the block

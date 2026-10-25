@@ -16,7 +16,7 @@ lazul live in a development image built from the `Dockerfile`.
 
 ```sh
 make image      # build the development image (once)
-./dmake         # build build/kernel.elf (fetches and builds mruby first)
+./dmake         # build build/riscv64/kernel.elf (fetches and builds mruby first)
 ./dmake run     # boot it in QEMU
 ```
 
@@ -29,6 +29,9 @@ to quit QEMU.
 
 QEMU runs with 4 harts and 128 MiB of RAM by default; change that with
 `./dmake run SMP=8 MEM=256M`.
+
+The architecture is chosen with `ARCH=` (default and, for now, only
+`riscv64`); each one builds into `build/<arch>/`.
 
 ## Debugging
 
@@ -49,7 +52,23 @@ the C and assembly code; Ruby code shows up as the mruby VM running it.
 
 ## Layout
 
-- `src/`: C and assembly core (boot, traps, the mruby VM, hardware access)
-- `kernel/`: the kernel's Ruby code
-- `build_config/`: mruby build configuration
+- `src/`: portable C core (the mruby VM, the kernel lock, hardware access)
+- `src/arch/<arch>/`: entry points, traps, CPU setup and the linker script
+- `kernel/`: the kernel's portable Ruby code
+- `kernel/arch/<arch>/`: Ruby code for the architecture and its devices
+- `build_config/<arch>.rb`: mruby build configuration
 - `test/`: console test
+
+## Adding an architecture
+
+An architecture `<arch>` is a set of files, with no changes to the
+portable code:
+
+- `src/arch/<arch>/arch.mk`: toolchain, flags, sources and QEMU command
+  line (the Makefile lists what it must define)
+- `src/arch/<arch>/start.S` and `kernel.ld`: entry points and memory layout
+- `src/arch/<arch>/*.c`: the `arch_*` functions declared in `src/kernel.h`
+- `kernel/arch/<arch>/arch.rb`: the `Arch` module used by the Ruby code,
+  following `kernel/arch/riscv64/arch.rb`
+- `build_config/<arch>.rb`: how to cross-build mruby
+- its toolchain and QEMU in the `Dockerfile`

@@ -14,15 +14,12 @@ class Hart
     def current = @harts[CPU.hartid]
     def add(id, state) = @harts[id] = Hart.new(id, state)
 
-    # Find every hart SBI knows about and start the stopped ones.
-    # They come up in C at _secondary_start and call Kern.hart_started.
+    # Find every hart the firmware knows about and start the stopped ones.
+    # They come up in C and call Kern.hart_started.
     def start_secondaries
       Kern::MAX_HARTS.times do |id|
         next if @harts[id]
-        status = SBI.hart_status(id)
-        next unless status
-        add(id, :starting)
-        SBI.hart_start(id, Kern::SECONDARY_ENTRY) if status == SBI::HART_STOPPED
+        add(id, :starting) if Arch.start_hart(id)
       end
     end
   end
@@ -35,7 +32,7 @@ class Hart
 
   def run(&block)
     @queue << block
-    SBI.send_ipi([@id])
+    Arch.send_ipi(@id)
     self
   end
 

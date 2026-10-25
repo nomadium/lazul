@@ -69,7 +69,7 @@ module Shell
 
     def cmd_poweroff(_)
       puts "powering off"
-      SBI.shutdown
+      Arch.shutdown
     end
   end
 end

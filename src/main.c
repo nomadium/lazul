@@ -4,14 +4,18 @@
  *
  *   - sets up per-hart TLS (picolibc keeps errno etc. there),
  *   - owns the big kernel lock (BKL) serializing all access to the one VM,
- *   - runs each hart's idle loop: call Ruby, release the BKL, wfi, repeat,
- *   - catches CPU exceptions and panics.
+ *   - runs each hart's idle loop: call Ruby, release the BKL, wait for an
+ *     interrupt, repeat,
+ *   - panics.
+ *
+ * It is the same on every architecture; the entry points, traps, CPU setup
+ * and the early console are in src/arch/<arch>/ (see kernel.h).
  *
  * Ruby code always runs to completion with the BKL held and interrupts
- * globally disabled (sstatus.SIE = 0). Interrupts are never taken as traps:
- * wfi wakes up on any interrupt pending in sie, and Ruby then looks at sip
- * and services the device. This keeps the VM single-threaded and
- * non-reentrant, which is what mruby requires.
+ * disabled. Interrupts are never taken as traps: they only wake the idle
+ * loop (arch_idle), and Ruby then finds out what is pending and services
+ * the device. This keeps the VM single-threaded and non-reentrant, which
+ * is what mruby requires.
  */
 #include <picotls.h>
 #include <stddef.h>
@@ -24,8 +28,6 @@
 #include <mruby/string.h>
 
 #include "kernel.h"
-#include "riscv.h"
-#include "sbi.h"
 
 #define	TLS_AREA	256
 
@@ -42,7 +44,6 @@ struct ticket_lock {
 	uint32_t	serving;
 };
 
-extern char __heap_end[], __heap_start[];
 /* The kernel/ Ruby sources, compiled to bytecode by mrbc. */
 extern const uint8_t kernel_rb[];
 
@@ -55,22 +56,14 @@ static uint8_t hart_tls[MAX_HARTS][TLS_AREA] __attribute__((__aligned__(16)));
 static mrb_state *mrb;
 
 /*
- * Write the character c to the console through the firmware. This works
- * before Ruby and its UART driver are up, so early messages and panics
- * use it, through kputs() and kputhex().
+ * Write the string s to the console with arch_putc(). This works before
+ * Ruby and its UART driver are up, so early messages and panics use it.
  */
-static void
-kputc(char c)
-{
-	sbi_call(SBI_EXT_LEGACY_PUTCHAR, 0, c, 0, 0, 0, 0, 0);
-}
-
-/* Write the string s to the console through the firmware. */
 void
 kputs(const char *s)
 {
 	for (; *s != '\0'; s++)
-		kputc(*s);
+		arch_putc(*s);
 }
 
 /*
@@ -84,7 +77,7 @@ kputhex(uint64_t v)
 
 	kputs("0x");
 	for (shift = 60; shift >= 0; shift -= 4)
-		kputc("0123456789abcdef"[(v >> shift) & 0xf]);
+		arch_putc("0123456789abcdef"[(v >> shift) & 0xf]);
 }
 
 /* Print msg and stop this hart for good; the other harts keep running. */
@@ -94,8 +87,7 @@ panic(const char *msg)
 	kputs("\npanic: ");
 	kputs(msg);
 	kputs("\n");
-	for (;;)
-		__asm__ volatile("wfi");
+	arch_halt();
 }
 
 /* libc's abort() ends up here (e.g. from a failed assert in mruby). */
@@ -104,22 +96,6 @@ _exit(int status)
 {
 	(void)status;
 	panic("_exit called");
-}
-
-/* Supervisor trap vector. Only synchronous exceptions can land here. */
-__attribute__((__interrupt__("supervisor"), __aligned__(4)))
-void
-trap_vector(void)
-{
-	kputs("\n*** exception on hart ");
-	kputhex(this_hartid);
-	kputs(" scause=");
-	kputhex(CSR_READ(scause));
-	kputs(" sepc=");
-	kputhex(CSR_READ(sepc));
-	kputs(" stval=");
-	kputhex(CSR_READ(stval));
-	panic("unexpected trap");
 }
 
 /* Take the big kernel lock, waiting for our turn. */
@@ -210,7 +186,7 @@ kern_call(const char *name, mrb_int argc, const mrb_value *argv)
 	mrb_gc_arena_restore(mrb, ai);
 }
 
-/* Give this hart its TLS and trap vector, with interrupts disabled. */
+/* Give this hart its TLS and set up its CPU, with interrupts disabled. */
 void
 hart_setup(long hartid)
 {
@@ -220,17 +196,13 @@ hart_setup(long hartid)
 	if (_tls_size() > TLS_AREA)
 		panic("TLS area too small");
 
-	_init_tls(hart_tls[hartid]);
-	_set_tls(hart_tls[hartid]);
+	arch_set_tls(hart_tls[hartid]);
 	this_hartid = hartid;
 
-	CSR_WRITE(stvec, (uintptr_t)trap_vector);
-	/* Interrupts only ever wake wfi; they are never taken. */
-	CSR_CLEAR(sstatus, SSTATUS_SIE);
-	CSR_WRITE(sie, 0);
+	arch_cpu_init(hartid);
 }
 
-/* Idle loop of a hart: run Ruby, release the BKL, wfi, repeat. */
+/* Idle loop of a hart: run Ruby, release the BKL, wait, repeat. */
 NORETURN void
 hart_loop(long hartid)
 {
@@ -240,19 +212,20 @@ hart_loop(long hartid)
 	for (;;) {
 		kern_call("tick", 1, &id);
 		bkl_release();
-		__asm__ volatile("wfi");
+		arch_idle();
 		bkl_acquire();
 	}
 }
 
 /*
- * C entry point of the boot hart, called by _start in start.S with the
- * hart id and device tree address that the firmware passed. Set up the
- * hart and the mruby VM, load the kernel's Ruby code and call Kern.boot,
- * then become this hart's idle loop.
+ * C entry point of the boot hart, called by the architecture's start.S
+ * with the hart id and the boot argument from the firmware (on riscv64,
+ * the device tree address). Set up the hart and the mruby VM, load the
+ * kernel's Ruby code and call Kern.boot, then become this hart's idle
+ * loop.
  */
 NORETURN void
-boot_main(long hartid, uintptr_t dtb)
+boot_main(long hartid, uintptr_t boot_arg)
 {
 	mrb_value args[2];
 
@@ -261,9 +234,7 @@ boot_main(long hartid, uintptr_t dtb)
 	kputhex(hartid);
 	kputs("\n");
 
-	/* QEMU puts the device tree at the top of RAM; keep the heap below. */
-	if (dtb > (uintptr_t)__heap_start && dtb < (uintptr_t)heap_limit)
-		heap_limit = (char *)(dtb & ~0xfffUL);
+	arch_early_init(boot_arg);
 
 	bkl_acquire();
 	mrb = mrb_open();
@@ -279,16 +250,16 @@ boot_main(long hartid, uintptr_t dtb)
 	}
 
 	args[0] = mrb_fixnum_value(hartid);
-	args[1] = mrb_int_value(mrb, dtb);
+	args[1] = mrb_int_value(mrb, boot_arg);
 	kern_call("boot", 2, args);
 	hart_loop(hartid);
 }
 
 /*
- * C entry point of every other hart, called by _secondary_start in start.S
- * once Ruby has started the hart through the SBI HSM extension. Set up
- * the hart, tell Kern.hart_started about it and become its idle loop.
- * opaque is the value Ruby passed to the HSM call; it is unused.
+ * C entry point of every other hart, called by the architecture's start.S
+ * once Ruby has started the hart (on riscv64, through the SBI HSM
+ * extension). Set up the hart, tell Kern.hart_started about it and become
+ * its idle loop. opaque is an architecture-defined value; it is unused.
  */
 NORETURN void
 secondary_main(long hartid, uintptr_t opaque)

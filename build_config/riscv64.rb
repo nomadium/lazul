@@ -3,16 +3,21 @@
 # "host" only provides mrbc, used to compile the kernel's Ruby sources into
 # bytecode at build time. "riscv64" is the library linked into the kernel:
 # freestanding RV64, no stdio, picolibc as the C library.
+#
+# Both build into $BUILD_ROOT/mruby: the Makefile passes its BUILD_ROOT to
+# rake. Run by hand without it, that is build/ at the top of the tree.
+
+build_root = ENV.fetch("BUILD_ROOT", File.expand_path("../build", __dir__))
 
 MRuby::Build.new do |conf|
   conf.toolchain :gcc
   conf.gem core: "mruby-bin-mrbc"
-  conf.build_dir = File.expand_path("../build/mruby/host", __dir__)
+  conf.build_dir = File.join(build_root, "mruby/host")
 end
 
 MRuby::CrossBuild.new("riscv64") do |conf|
   conf.toolchain :gcc
-  conf.build_dir = File.expand_path("../build/mruby/riscv64", __dir__)
+  conf.build_dir = File.join(build_root, "mruby/riscv64")
 
   arch_flags = %w[-march=rv64imac_zicsr_zifencei -mabi=lp64 -mcmodel=medany]
 
