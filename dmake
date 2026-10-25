@@ -1,0 +1,23 @@
+#!/bin/sh
+#
+# Run make inside the lazul dev container: ./dmake [make args...]
+# Build the image first with "make image".
+
+set -e
+cd "$(dirname "$0")"
+image=${IMAGE:-lazul-dev}
+
+if ! docker image inspect "$image" >/dev/null 2>&1; then
+  echo "dmake: image $image not found; run 'make image' first" >&2
+  exit 1
+fi
+
+# Run as the caller's uid and gid so that files written to the source tree
+# belong to them.
+user="--user $(id -u):$(id -g) -e HOME=/tmp"
+case $(docker info -f '{{.SecurityOptions}}' 2>/dev/null) in
+*rootless*) user= ;;
+esac
+
+tty=; [ -t 0 ] && tty=-it # interactive only with a terminal (QEMU console)
+exec docker run --rm --init $tty $user -v "$PWD":/src "$image" make "$@"

@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "19 2 * * *"
+
+permissions:
+  contents: read
+
+# A newer push to the same branch or pull request cancels the older run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the development image
+        run: make image
+
+      - name: Lint Ruby code
+        run: ./dmake lint
+
+      - name: Build the kernel
+        run: ./dmake -j$(nproc)
+
+      - name: Test with 1 hart
+        run: ./dmake test SMP=1
+
+      - name: Test with 4 harts
+        run: ./dmake test SMP=4
+
+      - name: Test with 8 harts
+        run: ./dmake test SMP=8

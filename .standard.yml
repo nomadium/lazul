@@ -1,0 +1,13 @@
+ruby_version: 3.3
+
+ignore:
+  - "**/*.rb":
+      - Layout/HashAlignment
+  - "kernel/**/*.rb":
+      # Performance advice is mostly suitable for CRuby, not mruby.
+      - Performance
+      # The kernel must survive any error raised by Ruby.
+      - Lint/RescueException
+  - "kernel/shell.rb":
+      # The shell is a REPL: evaluating what the user types is its job.
+      - Security/Eval
