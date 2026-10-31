@@ -79,6 +79,12 @@ begin
   # Line editing: backspace removes the typo before the line is submitted.
   t.command("echo typx\x7fo", "typo\r\n")
 
+  # History: Up recalls the previous line. The editor redraws the line,
+  # prompt included, before running it.
+  t.write("\e[A\r")
+  t.expect(/\r\e\[K> echo typo\r\ntypo#{PROMPT}\z/o)
+  t.check("up recalls the last line", true)
+
   # Run work on every hart via IPIs, then make sure all of it happened.
   t.write("$seen = []; Hart.online.each { |h| h.run { $seen << CPU.hartid } }; nil\r")
   t.expect(/#{PROMPT}\z/o)

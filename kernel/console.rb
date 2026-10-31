@@ -1,5 +1,5 @@
 # The system console: output, plus input through a LineEditor (echo, line
-# editing) that hands complete lines to a consumer.
+# editing, history) that hands complete lines to a consumer.
 module Console
   CR = 0x0d
   LF = 0x0a
@@ -7,7 +7,13 @@ module Console
   @editor = LineEditor.new { |str| Console.write(str) }
 
   class << self
-    attr_accessor :device, :on_line, :prompt
+    attr_accessor :device, :on_line
+
+    def prompt = @editor.prompt
+
+    def prompt=(str)
+      @editor.prompt = str
+    end
 
     def write(str)
       return 0 unless @device
@@ -38,7 +44,7 @@ module Console
     end
 
     def show_prompt
-      write(@prompt) if @prompt
+      write(prompt) if prompt
     end
 
     # Print a message that is not a reply to the line being typed (output
