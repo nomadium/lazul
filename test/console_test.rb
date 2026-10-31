@@ -79,11 +79,14 @@ begin
   # Line editing: backspace removes the typo before the line is submitted.
   t.command("echo typx\x7fo", "typo\r\n")
 
-  # History: Up recalls the previous line. The editor redraws the line,
-  # prompt included, before running it.
+  # History: Up recalls the previous line; Ctrl-R searches older ones. The
+  # editor redraws the line, prompt included, before running it.
   t.write("\e[A\r")
   t.expect(/\r\e\[K> echo typo\r\ntypo#{PROMPT}\z/o)
   t.check("up recalls the last line", true)
+  t.write("\x12a = 6\r")
+  t.expect(/reverse-i-search\)'a = 6': a = 6 \* 7.*=> 42#{PROMPT}\z/mo)
+  t.check("ctrl-r finds an older line", true)
 
   # Run work on every hart via IPIs, then make sure all of it happened.
   t.write("$seen = []; Hart.online.each { |h| h.run { $seen << CPU.hartid } }; nil\r")
@@ -99,7 +102,8 @@ begin
 
   if SMP > 1
     t.write("on #{SMP - 1} CPU.hartid * 100\r")
-    t.expect(/\[hart #{SMP - 1}\] => #{(SMP - 1) * 100}#{PROMPT}\z/)
+    # Output from another hart redraws the prompt after a line clear.
+    t.expect(/\[hart #{SMP - 1}\] => #{(SMP - 1) * 100}\r\n\r\e\[K> \z/)
     t.check("on #{SMP - 1}", true)
   end
 

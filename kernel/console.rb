@@ -62,8 +62,7 @@ module Console
     def notify(msg)
       write("\r\e[K")
       puts msg
-      show_prompt
-      write(@editor.line)
+      @editor.refresh
     end
   end
 end

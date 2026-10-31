@@ -127,5 +127,56 @@ s = Session.new
 check "history is capped", s.editor.history.size, Console::LineEditor::HISTORY_SIZE
 check "oldest entries dropped", s.editor.history.first, "cmd 5"
 
+# Reverse search.
+s = Session.new("echo apple", "harts", "echo banana", "uptime")
+s.type("\x12")
+check "search prompt", s.out.end_with?("(reverse-i-search)'': "), true
+s.type("ec")
+check "finds newest match", s.line, "echo banana"
+check "search prompt shows match", s.out.end_with?("(reverse-i-search)'ec': echo banana"), true
+s.type("\x12")
+check "ctrl-r finds older match", s.line, "echo apple"
+s.type("\x12")
+check "no older match keeps last", s.line, "echo apple"
+check "failed search shown", s.out.end_with?("(failed reverse-i-search)'ec': echo apple"), true
+check "enter runs the match", s.type("\r"), ["echo apple"]
+
+s = Session.new("echo apple", "echo banana")
+s.type("\x12echo b")
+check "current match kept while it fits", s.line, "echo banana"
+s.type("\x7f\x7f")
+check "backspace re-searches from newest", s.line, "echo banana"
+
+s = Session.new("echo apple", "echo banana")
+s.type("draft\x12apple\x07")
+check "ctrl-g cancels and restores", s.line, "draft"
+check "back at the normal prompt", s.out.end_with?("\r\e[K> draft"), true
+check "editing resumes after cancel", s.type("!\r"), ["draft!"]
+
+s = Session.new("one", "two", "three")
+s.type("\x12two" + UP)
+check "arrow accepts and browses from the match", s.line, "one"
+
+s = Session.new("one", "two", "three")
+s.type("draft\x12two" + DOWN)
+check "down from the match goes newer", s.line, "three"
+s.type(DOWN)
+check "then back to the line typed before searching", s.line, "draft"
+
+s = Session.new("echo apple")
+s.type("\x12zzz")
+check "no match at all", s.line, ""
+check "failed with no match", s.out.end_with?("(failed reverse-i-search)'zzz': "), true
+
+s = Session.new("echo apple")
+check "ctrl-c in search interrupts", s.type("\x12app\x03"), [:interrupt]
+check "line cleared after interrupt", s.line, ""
+
+s = Session.new("echo apple")
+check "ctrl-d in search is ignored with a match", s.type("\x12app\x04"), []
+check "the match stays", s.line, "echo apple"
+
+check "ctrl-r with no history", Session.new.tap { |x| x.type("\x12a\r") }.editor.history, []
+
 puts @failures.zero? ? "all line editor tests passed" : "#{@failures} failure(s)"
 exit(@failures.zero? ? 0 : 1)
