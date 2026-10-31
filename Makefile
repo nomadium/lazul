@@ -41,9 +41,11 @@ LDFLAGS := $(ARCH_FLAGS) $(LIBC_SPECS) -nostartfiles \
            -T src/arch/$(ARCH)/kernel.ld \
            -Wl,--gc-sections -Wl,-Map,$(BUILD)/kernel.map
 
-# Kernel Ruby sources, in load order: architecture specific code first.
-RUBY_SRCS := $(ARCH_RUBY_SRCS) kernel/uart.rb kernel/console/line_editor.rb \
-             kernel/console.rb kernel/hart.rb kernel/shell.rb kernel/kern.rb
+# Kernel Ruby sources, in load order: libraries and architecture specific
+# code first.
+RUBY_SRCS := kernel/fdt.rb $(ARCH_RUBY_SRCS) kernel/uart.rb \
+             kernel/console/line_editor.rb kernel/console.rb kernel/hart.rb \
+             kernel/shell.rb kernel/kern.rb
 C_SRCS  := src/main.c src/hal.c $(ARCH_C_SRCS)
 OBJS    := $(ARCH_ASM_SRCS:src/%.S=$(BUILD)/%.o) \
            $(C_SRCS:src/%.c=$(BUILD)/%.o) $(BUILD)/kernel_rb.o
@@ -128,4 +130,5 @@ gdb: $(BUILD)/kernel.elf
 
 test: $(BUILD)/kernel.elf
 	test/console/line_editor_test.rb
+	test/fdt_test.rb
 	SMP=$(SMP) QEMU_CMD="$(QEMU) $(QEMU_FLAGS)" test/console_test.rb

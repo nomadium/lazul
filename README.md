@@ -57,7 +57,8 @@ the C and assembly code; Ruby code shows up as the mruby VM running it.
 - `kernel/`: the kernel's portable Ruby code
 - `kernel/arch/<arch>/`: Ruby code for the architecture and its devices
 - `build_config/<arch>.rb`: mruby build configuration
-- `test/`: console test
+- `test/`: console test, and host-side tests of the line editor and the
+  device tree parser
 
 ## Adding an architecture
 

@@ -8,7 +8,7 @@ module Shell
     "uptime"   => "seconds since boot",
     "reboot"   => "restart the machine",
     "poweroff" => "shut the machine down (or Ctrl-D on an empty line)"
-  }
+  }.merge(Arch::SHELL_COMMANDS)
 
   class << self
     attr_writer :binding
@@ -17,7 +17,8 @@ module Shell
       cmd, rest = line.strip.split(" ", 2)
       return if cmd.nil?
       if COMMANDS.key?(cmd)
-        send("cmd_#{cmd}", rest.to_s)
+        target = respond_to?("cmd_#{cmd}") ? self : Arch
+        target.send("cmd_#{cmd}", rest.to_s)
       else
         evaluate(line)
       end

@@ -6,6 +6,7 @@ module Kern
     attr_reader :irqc
 
     def boot(hartid, boot_arg)
+      Arch.init(boot_arg)
       @boot_time = Arch.time
       @uart = Arch.console_uart
       @uart.init

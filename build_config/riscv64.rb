@@ -36,6 +36,10 @@ MRuby::CrossBuild.new("riscv64") do |conf|
   conf.gembox "stdlib"
   conf.gem core: "mruby-compiler"  # lets the console REPL evaluate source
   conf.gem core: "mruby-eval"
+  # Integer literals beyond 32 bits (e.g. 0xd00dfeed) become bigint pool
+  # entries in mruby 4.0, which raise "integer overflow" without this gem.
+  # It also keeps integer arithmetic exact instead of overflowing.
+  conf.gem core: "mruby-bigint"
   conf.gem core: "mruby-error"
   conf.gem core: "mruby-sprintf"
   conf.gem core: "mruby-pack"

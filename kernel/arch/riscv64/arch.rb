@@ -15,7 +15,21 @@ module Arch
   UART0_IRQ = 10
   PLIC_BASE = 0x0c00_0000
 
+  # Shell commands that only make sense here; Shell sends them to Arch.
+  SHELL_COMMANDS = {
+    "dt" => "dt [PATH] - device tree: node list, or one node's properties"
+  }
+
   class << self
+    # The device tree the firmware passed in (an FDT).
+    attr_reader :fdt
+
+    # First thing at boot, before any device is used. The boot argument is
+    # the device tree address.
+    def init(dtb)
+      @fdt = FDT.from_memory(dtb)
+    end
+
     # The firmware, for the boot banner.
     def firmware = "SBI #{SBI.spec_version}"
 
@@ -63,5 +77,38 @@ module Arch
 
     def shutdown = SBI.shutdown
     def reboot = SBI.reboot
+
+    def cmd_dt(path)
+      if path.empty?
+        @fdt.each_node do |n|
+          depth = (n.path == "/") ? 0 : n.path.count("/")
+          puts "#{"  " * depth}#{n.parent ? n.name : "/"}"
+        end
+        return
+      end
+      node = @fdt.find(path)
+      return puts("no such node: #{path}") unless node
+      puts "#{node.path} {"
+      node.props.each do |name, value|
+        puts value.empty? ? "  #{name};" : "  #{name} = #{format_prop(value)};"
+      end
+      node.children.each { |c| puts "  #{c.name} { ... };" }
+      puts "};"
+    end
+
+    private
+
+    # Show a property value the way dtc would guess: strings, cells or bytes.
+    def format_prop(v)
+      text = v.getbyte(v.bytesize - 1) == 0 && v.getbyte(0) != 0 && !v.include?("\0\0") &&
+        v.each_byte.all? { |b| b == 0 || (b >= 0x20 && b < 0x7f) }
+      if text
+        v.byteslice(0, v.bytesize - 1).split("\0").map(&:inspect).join(", ")
+      elsif v.bytesize % 4 == 0
+        "<" + v.unpack("N*").map { |c| "0x%x" % c }.join(" ") + ">"
+      else
+        "[" + v.unpack("C*").map { |b| "%02x" % b }.join(" ") + "]"
+      end
+    end
   end
 end

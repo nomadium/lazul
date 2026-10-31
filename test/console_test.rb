@@ -73,8 +73,12 @@ begin
   t.command("a + 1", "=> 43")
   t.command("self", "=> main")
   t.command("raise 'boom'", "RuntimeError: boom")
+  t.command("0xd00dfeed", "=> 3490578157")   # wider than 32 bits
   t.command("harts", "hart #{SMP - 1}: online")
   t.command("Memory.read32(Kern::SECONDARY_ENTRY) != 0", "=> true")
+  t.command("dt", "    cpu@#{SMP - 1}\r\n")
+  t.command("dt /cpus", "timebase-frequency = <0x989680>;")
+  t.command("dt /soc/serial", '"ns16550a"')
 
   # Line editing: backspace removes the typo before the line is submitted.
   t.command("echo typx\x7fo", "typo\r\n")

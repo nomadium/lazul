@@ -5,6 +5,7 @@
  *
  *   Memory[addr] -> byte, Memory[addr] = byte
  *   Memory.read32(addr) -> Integer, Memory.write32(addr, v)  (8/16/32/64)
+ *   Memory.read_bytes(addr, len) -> String (a copy, e.g. of a firmware table)
  *   CPU.hartid, CPU.fence
  *   Kern::MAX_HARTS, Kern::HEAP_START, Kern::HEAP_END
  *
@@ -13,6 +14,7 @@
  */
 #include <mruby.h>
 #include <mruby/presym.h>
+#include <mruby/string.h>
 
 #include "kernel.h"
 
@@ -42,6 +44,18 @@ MEM_ACCESSORS(8)
 MEM_ACCESSORS(16)
 MEM_ACCESSORS(32)
 MEM_ACCESSORS(64)
+
+/* Memory.read_bytes(addr, len): copy len bytes at addr into a String. */
+mrb_value
+mem_read_bytes(mrb_state *mrb, mrb_value self)
+{
+	mrb_int addr, len;
+
+	mrb_get_args(mrb, "ii", &addr, &len);
+	if (len < 0)
+		mrb_raise(mrb, E_ARGUMENT_ERROR, "negative length");
+	return mrb_str_new(mrb, (const char *)addr, len);
+}
 
 /* CPU.hartid: id of the current hart. */
 mrb_value
@@ -79,6 +93,8 @@ hal_init(mrb_state *mrb)
 	DEF_MEM(32);
 	DEF_MEM(64);
 #undef DEF_MEM
+	mrb_define_module_function(mrb, mem, "read_bytes", mem_read_bytes,
+	    MRB_ARGS_REQ(2));
 
 	cpu = mrb_define_module(mrb, "CPU");
 	mrb_define_module_function(mrb, cpu, "hartid", cpu_hartid,
