@@ -46,7 +46,7 @@ the C and assembly code; Ruby code shows up as the mruby VM running it.
 ## Testing
 
 ```sh
-./dmake test        # boot in QEMU and drive the console
+./dmake test        # run unit tests, then boot in QEMU and drive the console
 ./dmake lint        # check Ruby style (Standard)
 ```
 

@@ -2,6 +2,7 @@ ruby_version: 3.3
 
 ignore:
   - "**/*.rb":
+      - Layout/ExtraSpacing
       - Layout/HashAlignment
   - "kernel/**/*.rb":
       # Performance advice is mostly suitable for CRuby, not mruby.

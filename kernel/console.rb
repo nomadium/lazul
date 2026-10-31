@@ -1,14 +1,10 @@
-# The system console: output, plus a line discipline for input (echo,
-# backspace, line editing) that hands complete lines to a consumer.
+# The system console: output, plus input through a LineEditor (echo, line
+# editing) that hands complete lines to a consumer.
 module Console
-  BS = 0x08
-  DEL = 0x7f
   CR = 0x0d
   LF = 0x0a
-  CTRL_C = 0x03
-  CTRL_U = 0x15
 
-  @line = ""
+  @editor = LineEditor.new { |str| Console.write(str) }
 
   class << self
     attr_accessor :device, :on_line, :prompt
@@ -29,30 +25,15 @@ module Console
       end
     end
 
+    # Feed one byte to the line editor and run the line it completes, if
+    # any.
     def input(c)
-      case c
-      when CR, LF
-        write("\n")
-        line, @line = @line, ""
-        @on_line&.call(line)
+      case (result = @editor.feed(c))
+      when String
+        @on_line&.call(result)
         show_prompt
-      when BS, DEL
-        unless @line.empty?
-          @line = @line.byteslice(0, @line.bytesize - 1)
-          write("\b \b")
-        end
-      when CTRL_U
-        write("\b \b" * @line.size)
-        @line = ""
-      when CTRL_C
-        write("^C\n")
-        @line = ""
+      when :interrupt
         show_prompt
-      else
-        if c >= 0x20 && c < 0x7f
-          @line << c.chr
-          write(c.chr)
-        end
       end
     end
 
@@ -66,7 +47,7 @@ module Console
       write("\r\e[K")
       puts msg
       show_prompt
-      write(@line)
+      write(@editor.line)
     end
   end
 end
