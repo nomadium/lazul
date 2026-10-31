@@ -106,6 +106,13 @@ begin
   # Allocate a lot so the GC runs while other harts hold references.
   t.command("GC.start; (1..100_000).map(&:to_s).last", '=> "100000"')
 
+  # Reboot: the machine starts over, through the firmware, and comes back to
+  # the prompt with every hart.
+  t.write("reboot\r")
+  t.expect(/rebooting\r\n/)
+  again = t.expect(/#{SMP} hart\(s\) online; type 'help'#{PROMPT}\z/o, timeout: 60)
+  t.check("reboot", again.include?("lazul: booting on hart"))
+
   # Ctrl-D is ignored while the line has text, and powers off on an empty line.
   t.command("echo still here\x04", "still here\r\n")
   t.write("\x04")

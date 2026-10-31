@@ -36,5 +36,8 @@ module SBI
     call(EXT_IPI, 0, mask, 0)
   end
 
+  # System reset (SRST): reset type 0 is shutdown, 1 a cold reboot; the
+  # reason is 0, none given. They return only if the firmware fails.
   def self.shutdown = call(EXT_SRST, 0, 0, 0)
+  def self.reboot = call(EXT_SRST, 0, 1, 0)
 end

@@ -24,8 +24,8 @@ make image      # build the development image (once)
 the tree stay owned by you. It passes its arguments to `make`.
 
 At the `>` prompt, type `help` for the built-in commands; anything else
-is evaluated as Ruby. `poweroff` (or Ctrl-D on an empty line) shuts the
-machine down, or press Ctrl-A X to quit QEMU.
+is evaluated as Ruby. `reboot` restarts the machine, and `poweroff` (or
+Ctrl-D on an empty line) shuts it down; or press Ctrl-A X to quit QEMU.
 
 QEMU runs with 4 harts and 128 MiB of RAM by default; change that with
 `./dmake run SMP=8 MEM=256M`.

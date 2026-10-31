@@ -9,7 +9,8 @@ class UART
   LSR = 5  # line status
 
   LSR_DATA_READY = 0x01
-  LSR_THR_EMPTY = 0x20
+  LSR_THR_EMPTY = 0x20   # room for another byte
+  LSR_TX_EMPTY = 0x40    # everything sent, the shift register too
   IER_RX_AVAILABLE = 0x01
 
   attr_reader :base, :irq
@@ -30,6 +31,12 @@ class UART
   def putc(byte)
     nil until read(LSR) & LSR_THR_EMPTY != 0
     write(THR, byte)
+  end
+
+  # Wait until every byte written has left the UART, e.g. before the
+  # machine is reset or powered off.
+  def flush
+    nil until read(LSR) & LSR_TX_EMPTY != 0
   end
 
   # Next received byte, or nil if the receive FIFO is empty.

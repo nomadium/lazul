@@ -6,6 +6,7 @@ module Shell
     "harts"    => "list harts",
     "on"       => "on N EXPR - evaluate Ruby EXPR on hart N",
     "uptime"   => "seconds since boot",
+    "reboot"   => "restart the machine",
     "poweroff" => "shut the machine down (or Ctrl-D on an empty line)"
   }
 
@@ -67,8 +68,15 @@ module Shell
 
     def cmd_uptime(_) = puts("%d.%03d s" % Kern.uptime_ms.divmod(1000))
 
+    def cmd_reboot(_)
+      puts "rebooting"
+      Console.flush
+      Arch.reboot
+    end
+
     def cmd_poweroff(_)
       puts "powering off"
+      Console.flush
       Arch.shutdown
     end
   end

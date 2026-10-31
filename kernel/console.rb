@@ -50,6 +50,9 @@ module Console
       end
     end
 
+    # Wait until all output has been sent.
+    def flush = @device&.flush
+
     def show_prompt
       write(prompt) if prompt
     end

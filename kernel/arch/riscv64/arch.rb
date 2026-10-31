@@ -62,5 +62,6 @@ module Arch
     def timebase_hz = TIMEBASE_HZ
 
     def shutdown = SBI.shutdown
+    def reboot = SBI.reboot
   end
 end
