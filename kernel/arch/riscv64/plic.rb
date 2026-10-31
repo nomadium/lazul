@@ -1,12 +1,16 @@
 # RISC-V Platform-Level Interrupt Controller.
 class PLIC
-  def initialize(base)
+  # contexts: hart id => that hart's S-mode context number, from the device
+  # tree. (On QEMU virt it happens to be 2*hart+1, but not on every SoC.)
+  def initialize(base, contexts)
     @base = base
+    @contexts = contexts
     @handlers = {}
   end
 
-  # On QEMU virt, context 2*hart is M-mode and 2*hart+1 is S-mode.
-  def context(hartid) = 2 * hartid + 1
+  def context(hartid)
+    @contexts[hartid] or raise ArgumentError, "hart #{hartid} has no S-mode PLIC context"
+  end
 
   def register(irq, priority: 1, &handler)
     @handlers[irq] = handler

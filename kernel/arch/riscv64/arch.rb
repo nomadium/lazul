@@ -4,16 +4,12 @@
 # power. Another architecture provides the same methods in its own
 # kernel/arch/<arch>/arch.rb.
 #
-# The kernel runs in S-mode under SBI firmware, on QEMU's virt machine.
+# The kernel runs in S-mode under SBI firmware. What the machine has (RAM,
+# harts, timebase, console UART, PLIC) comes from the device tree the
+# firmware passes in, through Platform.
 module Arch
   SIP_SSIP = 1 << 1    # supervisor software interrupt (IPI)
   SIP_SEIP = 1 << 9    # supervisor external interrupt (PLIC)
-  TIMEBASE_HZ = 10_000_000
-
-  # QEMU virt machine. (To be discovered from the device tree eventually.)
-  UART0_BASE = 0x1000_0000
-  UART0_IRQ = 10
-  PLIC_BASE = 0x0c00_0000
 
   # Shell commands that only make sense here; Shell sends them to Arch.
   SHELL_COMMANDS = {
@@ -21,33 +17,62 @@ module Arch
   }
 
   class << self
-    # The device tree the firmware passed in (an FDT).
-    attr_reader :fdt
+    # The device tree the firmware passed in (an FDT), and what it says
+    # about the machine (a Platform).
+    attr_reader :fdt, :platform
 
     # First thing at boot, before any device is used. The boot argument is
     # the device tree address.
     def init(dtb)
+      @dtb = dtb
       @fdt = FDT.from_memory(dtb)
+      @platform = Platform.new(@fdt)
+      raise "no timebase-frequency in the device tree" unless @platform.timebase
     end
 
     # The firmware, for the boot banner.
     def firmware = "SBI #{SBI.spec_version}"
 
-    # What the boot argument passed to Kern.boot is, for the boot banner.
-    def describe_boot_arg(dtb) = "device tree at 0x#{dtb.to_s(16)}"
+    # The machine, for the boot banner: one line per item.
+    def describe
+      pf = @platform
+      mib = pf.memory.sum { |_, size| size } >> 20
+      [
+        "machine: #{pf.model}, device tree at #{hex(@dtb)}",
+        "memory: #{ranges(pf.memory)} (#{mib} MiB)",
+        "reserved: #{pf.reserved.empty? ? "none" : ranges(pf.reserved)}",
+        "kernel heap: #{hex(Kern::HEAP_START)}-#{hex(Kern::HEAP_END)}",
+        "harts: #{pf.harts.join(", ")}; timebase #{pf.timebase} Hz",
+        "console: #{pf.uart.node.path} at #{hex(pf.uart.base)}, irq #{pf.uart.irq}",
+        "interrupts: #{pf.plic ? "PLIC at #{hex(pf.plic.base)}" : "none supported"}"
+      ]
+    end
 
-    def console_uart = UART.new(UART0_BASE, UART0_IRQ)
+    # Hart ids that can run the kernel.
+    def harts = @platform.harts
 
-    # The interrupt controller: an object with register(irq, &handler) and
-    # service(hartid), which calls the handlers of pending interrupts.
-    def interrupt_controller = PLIC.new(PLIC_BASE)
+    def console_uart
+      u = @platform.uart or raise "no supported console UART in the device tree"
+      UART.new(u.base, u.irq, reg_shift: u.reg_shift, io_width: u.reg_io_width)
+    end
 
-    # Route irq to this hart and enable what wakes it from its idle wait:
-    # IPIs and device interrupts.
+    # The interrupt controller, or nil if there is none we support: an
+    # object with register(irq, &handler) and service(hartid), which calls
+    # the handlers of pending interrupts.
+    def interrupt_controller
+      PLIC.new(@platform.plic.base, @platform.plic.contexts) if @platform.plic
+    end
+
+    # Route irq to this hart (if there is an interrupt controller) and enable
+    # what wakes it from its idle wait: IPIs and device interrupts.
     def enable_interrupts(hartid, irqc, irq)
-      irqc.threshold(hartid, 0)
-      irqc.enable(irq, hartid)
-      CPU.csr_set(:sie, SIP_SSIP | SIP_SEIP)
+      sie = SIP_SSIP
+      if irqc
+        irqc.threshold(hartid, 0)
+        irqc.enable(irq, hartid)
+        sie |= SIP_SEIP
+      end
+      CPU.csr_set(:sie, sie)
     end
 
     # Start hart id if the firmware has it stopped. It comes up in C at
@@ -73,7 +98,7 @@ module Arch
 
     # The clock: a tick count, and ticks per second.
     def time = CPU.csr(:time)
-    def timebase_hz = TIMEBASE_HZ
+    def timebase_hz = @platform.timebase
 
     def shutdown = SBI.shutdown
     def reboot = SBI.reboot
@@ -97,6 +122,10 @@ module Arch
     end
 
     private
+
+    def hex(n) = "0x%x" % n
+
+    def ranges(list) = list.map { |base, size| "#{hex(base)}-#{hex(base + size)}" }.join(", ")
 
     # Show a property value the way dtc would guess: strings, cells or bytes.
     def format_prop(v)

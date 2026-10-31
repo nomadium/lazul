@@ -65,6 +65,10 @@ t = ConsoleTest.new(io)
 begin
   boot = t.expect(/#{SMP} hart\(s\) online; type 'help'#{PROMPT}\z/o, timeout: 30)
   puts boot if ENV["VERBOSE"]
+  # What the kernel found in the device tree.
+  t.check("banner: harts", boot.include?("harts: #{(0...SMP).to_a.join(", ")}; timebase 10000000 Hz"))
+  t.check("banner: console", boot.include?("console: /soc/serial@10000000 at 0x10000000, irq 10"))
+  t.check("banner: plic", boot.include?("interrupts: PLIC at 0xc000000"))
   boot_hart = boot[/Ruby is running on hart (\d+)/, 1].to_i  # OpenSBI picks it at random
   (0...SMP).each { |i| t.check("hart #{i} up", i == boot_hart || boot.include?("hart #{i} online")) }
 

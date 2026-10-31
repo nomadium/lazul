@@ -1,10 +1,12 @@
 #!/usr/bin/env ruby
-# Host-side test of the device tree parser (kernel/fdt.rb) under CRuby,
-# against device trees dumped from QEMU (qemu-system-riscv64 dumpdtb=).
+# Host-side test of the device tree parser (kernel/fdt.rb) and what riscv64
+# makes of it (kernel/arch/riscv64/platform.rb) under CRuby, against device
+# trees dumped from QEMU (qemu-system-riscv64 dumpdtb=).
 require "tmpdir"
 
 ROOT = File.expand_path("..", __dir__)
 load File.join(ROOT, "kernel/fdt.rb")
+load File.join(ROOT, "kernel/arch/riscv64/platform.rb")
 
 @failures = 0  # failed checks, counted by check()
 
@@ -81,6 +83,38 @@ Dir.mktmpdir do |dir|
   old = blob.dup
   old[20, 4] = [16].pack("N")
   raises("old version", FDT::Error) { FDT.new(old) }
+
+  # Platform: the machine as the kernel sees it.
+  p4 = Platform.new(fdt)
+  check "virt: model", p4.model, "riscv-virtio,qemu"
+  check "virt: memory", p4.memory, [[0x8000_0000, 128 << 20]]
+  check "virt: timebase", p4.timebase, 10_000_000
+  check "virt: harts", p4.harts, [0, 1, 2, 3]
+  check "virt: uart base", p4.uart.base, 0x1000_0000
+  check "virt: uart irq", p4.uart.irq, 10
+  check "virt: uart layout", [p4.uart.reg_shift, p4.uart.reg_io_width], [0, 1]
+  check "virt: stdout-path node", p4.uart.node.path, "/soc/serial@10000000"
+  check "virt: plic base", p4.plic.base, 0x0c00_0000
+  check "virt: plic S-mode contexts", p4.plic.contexts, {0 => 1, 1 => 3, 2 => 5, 3 => 7}
+
+  p8 = Platform.new(big)
+  check "virt 8: harts", p8.harts, (0..7).to_a
+  check "virt 8: memory", p8.memory, [[0x8000_0000, 2 << 30]]
+  check "virt 8: plic contexts", p8.plic.contexts.size, 8
+
+  # AIA instead of a PLIC (like the SpacemiT K3): no PLIC must be found.
+  aia = Platform.new(dump_dtb(dir, "virt-aia", "virt,aia=aplic-imsic", "-smp", "2", "-m", "128M"))
+  check "aia: no plic", aia.plic, nil
+  check "aia: harts", aia.harts, [0, 1]
+  check "aia: uart still found", aia.uart&.base, 0x1000_0000
+
+  # SiFive Unleashed: hart 0 is an E51 monitor core without S-mode, and its
+  # PLIC context numbering is not 2*hart+1.
+  pu = Platform.new(su)
+  check "sifive_u: S-mode harts skip hart 0", pu.harts, [1, 2, 3, 4]
+  check "sifive_u: plic S-mode contexts", pu.plic.contexts, {1 => 2, 2 => 4, 3 => 6, 4 => 8}
+  check "sifive_u: timebase", pu.timebase, 1_000_000
+  check "sifive_u: no supported uart", pu.uart, nil
 end
 
 puts @failures.zero? ? "all fdt tests passed" : "#{@failures} fdt failure(s)"

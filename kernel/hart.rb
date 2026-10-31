@@ -14,11 +14,15 @@ class Hart
     def current = @harts[CPU.hartid]
     def add(id, state) = @harts[id] = Hart.new(id, state)
 
-    # Find every hart the firmware knows about and start the stopped ones.
-    # They come up in C and call Kern.hart_started.
-    def start_secondaries
-      Kern::MAX_HARTS.times do |id|
+    # Start the given harts (from the device tree) that the firmware has
+    # stopped. They come up in C and call Kern.hart_started.
+    def start_secondaries(ids)
+      ids.each do |id|
         next if @harts[id]
+        if id >= Kern::MAX_HARTS
+          puts "  hart #{id}: ignored (MAX_HARTS is #{Kern::MAX_HARTS})"
+          next
+        end
         add(id, :starting) if Arch.start_hart(id)
       end
     end

@@ -13,13 +13,16 @@ module Kern
       Console.device = @uart
 
       puts "lazul: Ruby is running on hart #{hartid} (#{Arch.firmware}, mruby #{MRUBY_VERSION})"
-      puts "  #{Arch.describe_boot_arg(boot_arg)}, heap 0x#{HEAP_START.to_s(16)}-0x#{HEAP_END.to_s(16)}"
+      Arch.describe.each { |line| puts "  #{line}" }
 
-      @irqc = Arch.interrupt_controller
-      @irqc.register(@uart.irq) { Console.receive }
+      if (@irqc = Arch.interrupt_controller)
+        @irqc.register(@uart.irq) { Console.receive }
+      else
+        puts "  warning: no supported interrupt controller; console input disabled"
+      end
 
       Hart.add(hartid, :online)
-      Hart.start_secondaries
+      Hart.start_secondaries(Arch.harts)
       setup_interrupts(hartid)
       Console.on_line = Shell.method(:execute)
       Console.on_eof = -> { Shell.cmd_poweroff("") }
@@ -38,10 +41,10 @@ module Kern
     def tick(hartid)
       ipi, irq = Arch.pending
       Hart[hartid].run_queue if ipi
-      @irqc.service(hartid) if irq
+      @irqc.service(hartid) if @irqc && irq
     end
 
-    def uptime_ms = (Arch.time - @boot_time) / (Arch.timebase_hz / 1000)
+    def uptime_ms = (Arch.time - @boot_time) * 1000 / Arch.timebase_hz
 
     private
 

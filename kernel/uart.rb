@@ -1,4 +1,5 @@
-# NS16550A UART driver.
+# NS16550A UART driver. Registers are 1 << reg_shift bytes apart and are
+# accessed io_width bytes at a time (1 or 4), as the device tree says.
 class UART
   RBR = 0  # receive buffer (read)
   THR = 0  # transmit holding (write)
@@ -15,9 +16,11 @@ class UART
 
   attr_reader :base, :irq
 
-  def initialize(base, irq)
+  def initialize(base, irq, reg_shift: 0, io_width: 1)
     @base = base
     @irq = irq
+    @reg_shift = reg_shift
+    @io_width = io_width
   end
 
   def init
@@ -46,6 +49,13 @@ class UART
 
   private
 
-  def read(reg) = Memory[@base + reg]
-  def write(reg, v) = Memory[@base + reg] = v
+  def read(reg)
+    addr = @base + (reg << @reg_shift)
+    (@io_width == 4) ? Memory.read32(addr) & 0xff : Memory[addr]
+  end
+
+  def write(reg, v)
+    addr = @base + (reg << @reg_shift)
+    (@io_width == 4) ? Memory.write32(addr, v) : Memory[addr] = v
+  end
 end
