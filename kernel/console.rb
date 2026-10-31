@@ -7,7 +7,7 @@ module Console
   @editor = LineEditor.new { |str| Console.write(str) }
 
   class << self
-    attr_accessor :device, :on_line
+    attr_accessor :device, :on_line, :on_eof
 
     def prompt = @editor.prompt
 
@@ -38,6 +38,13 @@ module Console
       when String
         @on_line&.call(result)
         show_prompt
+      when :eof
+        # End of input, like a Unix shell (the editor only reports it on an
+        # empty line).
+        if @on_eof
+          write("\n")
+          @on_eof.call
+        end
       when :interrupt
         show_prompt
       end

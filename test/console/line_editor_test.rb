@@ -14,7 +14,7 @@ def check(name, actual, expected)
 end
 
 # A fresh editor plus the screen output it produced; `type` returns the
-# results the editor reported (lines, :interrupt). Lines given to new() are
+# results the editor reported (lines, :eof, :interrupt). Lines given to new() are
 # typed first, to fill the history.
 class Session
   attr_reader :editor, :out
@@ -59,6 +59,13 @@ s = Session.new
 check "ctrl-c", s.type("abc\x03"), [:interrupt]
 check "ctrl-c echoes ^C", s.out, "abc^C\n"
 check "line cleared after ctrl-c", s.line, ""
+
+s = Session.new
+check "ctrl-d on empty line", s.type("\x04"), [:eof]
+check "ctrl-d prints nothing", s.out, ""
+s = Session.new
+check "ctrl-d ignored with text", s.type("a\x04"), []
+check "ctrl-d leaves the line alone", s.line, "a"
 
 s = Session.new
 check "control and non-ASCII bytes ignored", s.type("a\e\tb\xc3\xa9c\r"), ["abc"]

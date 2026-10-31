@@ -21,6 +21,7 @@ module Kern
       Hart.start_secondaries
       setup_interrupts(hartid)
       Console.on_line = Shell.method(:execute)
+      Console.on_eof = -> { Shell.cmd_poweroff("") }
       announce_if_ready
     end
 

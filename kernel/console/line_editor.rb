@@ -1,6 +1,6 @@
 # Line editing for the console: bytes from the terminal go in, screen output
-# and completed lines come out. Supports backspace, Ctrl-U and history
-# (Up/Down).
+# and completed lines come out. Supports backspace, Ctrl-U, Ctrl-D (end of
+# input on an empty line) and history (Up/Down).
 #
 # Kept to the Ruby subset shared by mruby and CRuby so it can be tested on
 # the host (test/console/line_editor_test.rb).
@@ -12,6 +12,7 @@ module Console
     LF     = 0x0a
     ESC    = 0x1b
     CTRL_C = 0x03
+    CTRL_D = 0x04
     CTRL_U = 0x15
 
     HISTORY_SIZE = 200
@@ -29,8 +30,8 @@ module Console
       @esc      = nil     # escape sequence state: nil, :esc or :csi
     end
 
-    # Feeds one input byte. Returns a completed line (String), :interrupt
-    # (Ctrl-C), or nil.
+    # Feeds one input byte. Returns a completed line (String), :eof (Ctrl-D
+    # on an empty line), :interrupt (Ctrl-C), or nil.
     def feed(c)
       return escape(c) if @esc
 
@@ -51,6 +52,8 @@ module Console
         write("\b \b" * @line.size)
         @line = ""
         nil
+      when CTRL_D
+        :eof if @line.empty?
       when CTRL_C
         write("^C\n")
         @line = ""

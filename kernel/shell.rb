@@ -6,7 +6,7 @@ module Shell
     "harts"    => "list harts",
     "on"       => "on N EXPR - evaluate Ruby EXPR on hart N",
     "uptime"   => "seconds since boot",
-    "poweroff" => "shut the machine down"
+    "poweroff" => "shut the machine down (or Ctrl-D on an empty line)"
   }
 
   class << self

@@ -106,7 +106,9 @@ begin
   # Allocate a lot so the GC runs while other harts hold references.
   t.command("GC.start; (1..100_000).map(&:to_s).last", '=> "100000"')
 
-  t.write("poweroff\r")
+  # Ctrl-D is ignored while the line has text, and powers off on an empty line.
+  t.command("echo still here\x04", "still here\r\n")
+  t.write("\x04")
   t.expect(/powering off/)
   Timeout.timeout(10) { Process.wait(io.pid) }
   t.check("qemu exited", true)
