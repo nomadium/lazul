@@ -197,8 +197,12 @@ report_exception(mrb_value exc)
 	kputs("\n");
 }
 
-/* Call Kern.<name>(*argv). Must hold the BKL. */
-void
+/*
+ * Call Kern.<name>(*argv). Must hold the BKL. An exception that escapes
+ * is reported here; the return value says whether there was one (1), so
+ * that the caller can decide whether the kernel can go on.
+ */
+int
 kern_call(const char *name, mrb_int argc, const mrb_value *argv)
 {
 	struct kcall c;
@@ -217,6 +221,7 @@ kern_call(const char *name, mrb_int argc, const mrb_value *argv)
 
 	mrb->exc = NULL;
 	mrb_gc_arena_restore(mrb, ai);
+	return err ? 1 : 0;
 }
 
 /*
@@ -243,6 +248,7 @@ hart_loop(long hartid)
 
 	id = mrb_fixnum_value(hartid);
 	for (;;) {
+		/* An exception here only fails this one wake-up; go on. */
 		kern_call("tick", 1, &id);
 		bkl_release();
 		arch_idle();
@@ -284,7 +290,12 @@ boot_main(long hartid, uintptr_t boot_arg)
 
 	args[0] = mrb_fixnum_value(hartid);
 	args[1] = mrb_int_value(mrb, boot_arg);
-	kern_call("boot", 2, args);
+	/*
+	 * A kernel that did not finish booting cannot do anything useful,
+	 * and the rest of it would run on half-initialized state.
+	 */
+	if (kern_call("boot", 2, args))
+		panic("Kern.boot failed");
 	hart_loop(hartid);
 }
 
@@ -304,6 +315,7 @@ secondary_main(long hartid, uintptr_t area)
 	hart_setup(hartid, (void *)area);
 	bkl_acquire();
 	id = mrb_fixnum_value(hartid);
-	kern_call("hart_started", 1, &id);
+	if (kern_call("hart_started", 1, &id))
+		panic("Kern.hart_started failed");
 	hart_loop(hartid);
 }
