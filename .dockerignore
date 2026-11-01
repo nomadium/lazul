@@ -1,0 +1,4 @@
+# The image only needs files from build_config/; keep the build trees and
+# the mruby checkout out of the build context.
+*
+!build_config/
