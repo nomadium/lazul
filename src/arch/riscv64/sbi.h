@@ -16,6 +16,14 @@
 #define	SBI_EXT_BASE			0x10
 #define	SBI_BASE_PROBE_EXTENSION	3
 
+/*
+ * IPI extension: send_ipi(hart_mask, hart_mask_base). A hart_mask_base of
+ * -1 means every hart, whatever the mask.
+ */
+#define	SBI_EXT_IPI		0x735049	/* "sPI" */
+#define	SBI_IPI_SEND_IPI	0
+#define	SBI_HART_MASK_ALL	(-1L)
+
 /* Hart State Management (HSM) extension: functions and hart states. */
 #define	SBI_EXT_HSM		0x48534d	/* "HSM" */
 #define	SBI_HSM_HART_START	0

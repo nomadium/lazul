@@ -50,6 +50,7 @@ __thread int this_hartid = -1;
 char *heap_limit = __heap_end;
 
 static struct ticket_lock bkl;	/* big kernel lock */
+static int stopped;		/* set by panic(): every hart halts */
 static char *heap_brk = __heap_start;
 static uint8_t boot_tls[TLS_AREA] __attribute__((__aligned__(16)));
 static mrb_state *mrb;
@@ -79,13 +80,24 @@ kputhex(uint64_t v)
 		arch_putc("0123456789abcdef"[(v >> shift) & 0xf]);
 }
 
-/* Print msg and stop this hart for good; the other harts keep running. */
+/*
+ * Print msg and stop the kernel: this hart and every other one halt for
+ * good. The panicking hart usually holds the BKL, which it will never
+ * release; without stopping them, the other harts would spin on it
+ * forever as soon as an interrupt woke them. Instead they find stopped
+ * set while waiting for the BKL (bkl_acquire()) and halt, and
+ * arch_stop_others() wakes the ones that are asleep so that they do.
+ * Only the first hart to panic prints; a second one just halts.
+ */
 NORETURN void
 panic(const char *msg)
 {
-	kputs("\npanic: ");
-	kputs(msg);
-	kputs("\n");
+	if (__atomic_exchange_n(&stopped, 1, __ATOMIC_SEQ_CST) == 0) {
+		kputs("\npanic: ");
+		kputs(msg);
+		kputs("\n");
+		arch_stop_others();
+	}
 	arch_halt();
 }
 
@@ -97,7 +109,10 @@ _exit(int status)
 	panic("_exit called");
 }
 
-/* Take the big kernel lock, waiting for our turn. */
+/*
+ * Take the big kernel lock, waiting for our turn; or halt, if the kernel
+ * has panicked meanwhile (see panic()).
+ */
 void
 bkl_acquire(void)
 {
@@ -105,7 +120,10 @@ bkl_acquire(void)
 
 	ticket = __atomic_fetch_add(&bkl.next, 1, __ATOMIC_RELAXED);
 	while (__atomic_load_n(&bkl.serving, __ATOMIC_ACQUIRE) != ticket)
-		continue;
+		if (__atomic_load_n(&stopped, __ATOMIC_RELAXED))
+			arch_halt();
+	if (__atomic_load_n(&stopped, __ATOMIC_RELAXED))
+		arch_halt();	/* the hart that panicked did not hold it */
 }
 
 /* Release the big kernel lock to the next hart in line. */

@@ -77,10 +77,25 @@ arch_idle(void)
 	__asm__ volatile("wfi");
 }
 
-/* Sleep forever; wake-ups are ignored. */
+/*
+ * Sleep forever. Masking every interrupt source first matters: wfi
+ * returns as soon as an enabled interrupt is pending, and one that
+ * nobody services any more (an IPI, the UART's) stays pending for good,
+ * which would turn this loop into a busy one. The loop stays because wfi
+ * may still return for other reasons (the firmware's own interrupts).
+ */
 NORETURN void
 arch_halt(void)
 {
+	CSR_WRITE(sie, 0);
 	for (;;)
 		__asm__ volatile("wfi");
+}
+
+/* An IPI to every hart there is (this one included, which does no harm). */
+void
+arch_stop_others(void)
+{
+	sbi_call(SBI_EXT_IPI, SBI_IPI_SEND_IPI, 0, SBI_HART_MASK_ALL, 0, 0,
+	    0, 0);
 }

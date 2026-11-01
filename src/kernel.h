@@ -73,8 +73,14 @@ void	arch_cpu_init(long);
 /* Wait until an interrupt is pending, without taking it. */
 void	arch_idle(void);
 
-/* Stop this hart for good. */
+/* Stop this hart for good: no interrupt wakes it up any more. */
 NORETURN void	arch_halt(void);
+
+/*
+ * Wake every other hart (e.g. with an IPI), for panic(): each one then
+ * finds that the kernel has stopped and halts.
+ */
+void	arch_stop_others(void);
 
 /*
  * Define the architecture's own primitives for Ruby (registers, firmware
