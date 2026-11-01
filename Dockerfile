@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         rake \
         ruby \
         ruby-dev \
+        u-boot-qemu \
     && rm -rf /var/lib/apt/lists/*
 
 ARG STANDARD_VERSION

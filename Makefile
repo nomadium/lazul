@@ -8,6 +8,8 @@
 #   ARCH_ASM_SRCS   assembly sources in src/arch/$(ARCH)/
 #   ARCH_RUBY_SRCS  Ruby sources in kernel/arch/$(ARCH)/, loaded first
 #   QEMU, MEM, QEMU_FLAGS  how to run the kernel in QEMU
+#   BOOT_DEPS       what QEMU needs besides the kernel (e.g. a boot disk),
+#                   built by default and before run, debug and test
 #
 # The linker script is src/arch/$(ARCH)/kernel.ld and the mruby build
 # configuration build_config/$(ARCH).rb.
@@ -54,10 +56,12 @@ DEPS    := $(OBJS:.o=.d)
 # Do not miss changes in header dependencies.
 -include $(DEPS)
 
-.DEFAULT_GOAL := $(BUILD)/kernel.elf
+.DEFAULT_GOAL := all
 
 
-.PHONY: run debug gdb test lint lint-fix clean distclean image
+.PHONY: all run debug gdb test lint lint-fix clean distclean image
+
+all: $(BUILD)/kernel.elf $(BOOT_DEPS)
 
 
 $(BUILD)/kernel.elf: $(OBJS) $(LIBMRUBY) src/arch/$(ARCH)/kernel.ld
@@ -119,16 +123,16 @@ GDB ?= gdb-multiarch
 # through the bind-mounted tree.
 GDB_SOCK := $(BUILD)/gdb.sock
 
-run: $(BUILD)/kernel.elf
+run: $(BUILD)/kernel.elf $(BOOT_DEPS)
 	$(QEMU) $(QEMU_FLAGS)
 
-debug: $(BUILD)/kernel.elf
+debug: $(BUILD)/kernel.elf $(BOOT_DEPS)
 	$(QEMU) $(QEMU_FLAGS) -S -gdb unix:$(GDB_SOCK),server=on,wait=off
 
 gdb: $(BUILD)/kernel.elf
 	$(GDB) -q -ex 'target remote $(GDB_SOCK)' $(BUILD)/kernel.elf
 
-test: $(BUILD)/kernel.elf
+test: $(BUILD)/kernel.elf $(BOOT_DEPS)
 	test/console/line_editor_test.rb
 	test/fdt_test.rb
-	SMP=$(SMP) QEMU_CMD="$(QEMU) $(QEMU_FLAGS)" test/console_test.rb
+	SMP=$(SMP) BOOT=$(BOOT) QEMU_CMD="$(QEMU) $(QEMU_FLAGS)" test/console_test.rb

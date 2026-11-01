@@ -33,6 +33,23 @@ QEMU runs with 4 harts and 128 MiB of RAM by default; change that with
 The architecture is chosen with `ARCH=` (default and, for now, only
 `riscv64`); each one builds into `build/<arch>/`.
 
+### Booting through UEFI (U-Boot)
+
+```sh
+./dmake run BOOT=uefi   # OpenSBI, U-Boot, the EFI loader, then the kernel
+./dmake test BOOT=uefi  # the console test, booted that way
+```
+
+By default QEMU loads `kernel.elf` and OpenSBI jumps straight to it.
+`BOOT=uefi` boots the way a board does: OpenSBI starts U-Boot in S-mode,
+whose EFI boot manager finds `\EFI\BOOT\BOOTRISCV64.EFI` on a FAT disk
+(QEMU's emulated view of `build/riscv64/esp/`). That is lazul's EFI loader
+(`src/arch/riscv64/loader/`): it reads `\kernel.elf` from the same disk,
+places it at its link address, exits boot services and jumps to the kernel
+with the boot hart id and the device tree, as OpenSBI would. To boot a
+board with U-Boot, copy `build/riscv64/esp/` onto its EFI system
+partition. QEMU gets 256 MiB of RAM this way, as U-Boot needs it.
+
 ## Debugging
 
 ```sh
@@ -54,6 +71,7 @@ the C and assembly code; Ruby code shows up as the mruby VM running it.
 
 - `src/`: portable C core (the mruby VM, the kernel lock, hardware access)
 - `src/arch/<arch>/`: entry points, traps, CPU setup and the linker script
+- `src/arch/<arch>/loader/`: the EFI loader
 - `kernel/`: the kernel's portable Ruby code
 - `kernel/arch/<arch>/`: Ruby code for the architecture and its devices
 - `build_config/<arch>.rb`: mruby build configuration

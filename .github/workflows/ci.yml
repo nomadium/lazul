@@ -39,3 +39,6 @@ jobs:
 
       - name: Test with 8 harts
         run: ./dmake test SMP=8
+
+      - name: Test booting through U-Boot and the EFI loader
+        run: ./dmake test SMP=4 BOOT=uefi

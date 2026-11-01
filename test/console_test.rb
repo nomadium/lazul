@@ -3,12 +3,16 @@
 # Boots the kernel in QEMU and drives the serial console like a user would.
 # Usage: test/console_test.rb [smp] (default: $SMP or 4)
 # "make test" passes the QEMU command line for the architecture being built
-# in $QEMU_CMD; without it, the riscv64 kernel is run.
+# in $QEMU_CMD; without it, the riscv64 kernel is run. BOOT=uefi says that
+# command boots through U-Boot and the EFI loader (make test BOOT=uefi).
 
 require "shellwords"
 require "timeout"
 
 SMP = Integer(ARGV[0] || ENV.fetch("SMP", 4))
+UEFI = ENV["BOOT"] == "uefi"
+# Booting through U-Boot takes longer: it scans for devices first.
+BOOT_TIMEOUT = UEFI ? 60 : 30
 # The shell prompt; always written after a newline, so a "=> " that ends a
 # partial read of a reply does not look like it.
 PROMPT = "\r\n> "
@@ -63,14 +67,16 @@ io = IO.popen(QEMU, "r+", err: [:child, :out])
 t = ConsoleTest.new(io)
 
 begin
-  boot = t.expect(/#{SMP} hart\(s\) online; type 'help'#{PROMPT}\z/o, timeout: 30)
+  boot = t.expect(/#{SMP} hart\(s\) online; type 'help'#{PROMPT}\z/o, timeout: BOOT_TIMEOUT)
+  t.check("booted through the EFI loader", boot.include?("lazul EFI loader")) if UEFI
   puts boot if ENV["VERBOSE"]
   # What the kernel found in the device tree.
   t.check("banner: harts", boot.include?("harts: #{(0...SMP).to_a.join(", ")}; timebase 10000000 Hz"))
   t.check("banner: console", boot.include?("console: /soc/serial@10000000 at 0x10000000, irq 10"))
   t.check("banner: plic", boot.include?("interrupts: PLIC at 0xc000000"))
-  # QEMU puts the device tree at the top of RAM, so the heap ends there.
-  dtb = boot[/device tree at (0x\h+)/, 1]
+  # The device tree sits at the top of RAM (put there by QEMU, or U-Boot's
+  # copy), so the heap ends there.
+  dtb = boot[/machine: .*, device tree at (0x\h+)/, 1]
   t.check("heap ends at the device tree", dtb && boot.include?("-#{dtb}\r\n"))
   boot_hart = boot[/Ruby is running on hart (\d+)/, 1].to_i  # OpenSBI picks it at random
   (0...SMP).each { |i| t.check("hart #{i} up", i == boot_hart || boot.include?("hart #{i} online")) }
@@ -125,8 +131,9 @@ begin
   # the prompt with every hart.
   t.write("reboot\r")
   t.expect(/rebooting\r\n/)
-  again = t.expect(/#{SMP} hart\(s\) online; type 'help'#{PROMPT}\z/o, timeout: 60)
+  again = t.expect(/#{SMP} hart\(s\) online; type 'help'#{PROMPT}\z/o, timeout: 2 * BOOT_TIMEOUT)
   t.check("reboot", again.include?("lazul: booting on hart"))
+  t.check("reboot through the EFI loader", again.include?("lazul EFI loader")) if UEFI
 
   # Ctrl-D is ignored while the line has text, and powers off on an empty line.
   t.command("echo still here\x04", "still here\r\n")
@@ -143,5 +150,6 @@ rescue => e
   end
 end
 
-puts t.failures.zero? ? "all tests passed (smp=#{SMP})" : "#{t.failures} failure(s) (smp=#{SMP})"
+mode = "smp=#{SMP}#{", boot=uefi" if UEFI}"
+puts t.failures.zero? ? "all tests passed (#{mode})" : "#{t.failures} failure(s) (#{mode})"
 exit(t.failures.zero? ? 0 : 1)
