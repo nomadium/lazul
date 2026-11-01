@@ -318,7 +318,7 @@ SECTIONS
  *                   .tdata plus alignment padding)
  *   __tbss_size     how many bytes to zero there
  *   __tls_size      size of one whole TLS block; _tls_size() returns it,
- *                   and hart_setup() panics if it outgrows TLS_AREA
+ *                   and arch_set_tls() panics if it outgrows TLS_AREA
  *                   (config.h), the size of each hart's block
  *   __tls_align     alignment a TLS block needs
  *

@@ -1,5 +1,29 @@
-# NS16550A UART driver. Registers are 1 << reg_shift bytes apart and are
-# accessed io_width bytes at a time (1 or 4), as the device tree says.
+# Memory-mapped device registers: register n is at base + (n << shift),
+# accessed width bytes at a time (1 or 4), the layout that a device tree
+# describes with reg-shift and reg-io-width. amd64 adds PortRegs, the same
+# interface over I/O ports.
+class MMIORegs
+  attr_reader :base
+
+  def initialize(base, shift: 0, width: 1)
+    @base = base
+    @shift = shift
+    @width = width
+  end
+
+  def read(reg)
+    addr = @base + (reg << @shift)
+    (@width == 4) ? Memory.read32(addr) & 0xff : Memory[addr]
+  end
+
+  def write(reg, v)
+    addr = @base + (reg << @shift)
+    (@width == 4) ? Memory.write32(addr, v) : Memory[addr] = v
+  end
+end
+
+# NS16550A UART driver (also the PC's COM ports), on top of a register
+# accessor such as MMIORegs.
 class UART
   RBR = 0  # receive buffer (read)
   THR = 0  # transmit holding (write)
@@ -14,13 +38,11 @@ class UART
   LSR_TX_EMPTY = 0x40    # everything sent, the shift register too
   IER_RX_AVAILABLE = 0x01
 
-  attr_reader :base, :irq
+  attr_reader :regs, :irq
 
-  def initialize(base, irq, reg_shift: 0, io_width: 1)
-    @base = base
+  def initialize(regs, irq)
+    @regs = regs
     @irq = irq
-    @reg_shift = reg_shift
-    @io_width = io_width
   end
 
   def init
@@ -49,13 +71,6 @@ class UART
 
   private
 
-  def read(reg)
-    addr = @base + (reg << @reg_shift)
-    (@io_width == 4) ? Memory.read32(addr) & 0xff : Memory[addr]
-  end
-
-  def write(reg, v)
-    addr = @base + (reg << @reg_shift)
-    (@io_width == 4) ? Memory.write32(addr, v) : Memory[addr] = v
-  end
+  def read(reg) = @regs.read(reg)
+  def write(reg, v) = @regs.write(reg, v)
 end

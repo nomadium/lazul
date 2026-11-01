@@ -17,7 +17,6 @@
  * the device. This keeps the VM single-threaded and non-reentrant, which
  * is what mruby requires.
  */
-#include <picotls.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -225,19 +224,17 @@ kern_call(const char *name, mrb_int argc, const mrb_value *argv)
 }
 
 /*
- * Give this hart its TLS, in the TLS_AREA bytes at tls, and set up its
- * CPU, with interrupts disabled.
+ * Set up this hart's CPU and give it its TLS, in the TLS_AREA bytes at
+ * tls, with interrupts disabled. The CPU comes first: on amd64, loading
+ * the segment registers clears the thread pointer.
  */
 void
 hart_setup(long hartid, void *tls)
 {
-	if (_tls_size() > TLS_AREA)
-		panic("TLS area too small");
-
-	arch_set_tls(tls);
-	this_hartid = hartid;
-
 	arch_cpu_init(hartid);
+
+	arch_set_tls(tls, TLS_AREA);
+	this_hartid = hartid;
 }
 
 /* Idle loop of a hart: run Ruby, release the BKL, wait, repeat. */
@@ -258,22 +255,22 @@ hart_loop(long hartid)
 
 /*
  * C entry point of the boot hart, called by the architecture's start.S
- * with the hart id and the boot argument from the firmware (on riscv64,
- * the device tree address). Set up the hart and the mruby VM, load the
- * kernel's Ruby code and call Kern.boot, then become this hart's idle
- * loop.
+ * with the hart id and the boot argument from the firmware or the boot
+ * loader (on riscv64, the device tree address). Set up the hart and the
+ * mruby VM, load the kernel's Ruby code and call Kern.boot, then become
+ * this hart's idle loop.
  */
 NORETURN void
 boot_main(long hartid, uintptr_t boot_arg)
 {
 	mrb_value args[2];
 
+	arch_early_init(boot_arg);
+
 	hart_setup(hartid, boot_tls);
 	kputs("lazul: booting on hart ");
 	kputhex(hartid);
 	kputs("\n");
-
-	arch_early_init(boot_arg);
 
 	bkl_acquire();
 	mrb = mrb_open();

@@ -32,7 +32,8 @@ class PLIC
 
   # Service every interrupt pending for this hart. Several harts may be
   # woken for the same interrupt; only one wins the claim, the rest get 0.
-  def service(hartid)
+  # The claim says which interrupt it is, so pending is not needed.
+  def service(hartid, _pending = nil)
     while (irq = claim(hartid)) != 0
       begin
         @handlers[irq]&.call(irq)

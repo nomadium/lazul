@@ -9,6 +9,7 @@
  * the trap vector, and they panic.
  */
 #include <picotls.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "kernel.h"
@@ -35,10 +36,16 @@ arch_early_init(uintptr_t boot_arg)
 	    (uintptr_t)__heap_start) & ~0xfffUL);
 }
 
-/* picolibc keeps the thread pointer in tp and knows how to set it up. */
+/*
+ * picolibc keeps the thread pointer in tp and knows how to set it up: the
+ * TLS block starts at tp, so it starts at the area.
+ */
 void
-arch_set_tls(void *area)
+arch_set_tls(void *area, size_t size)
 {
+	if (_tls_size() > size)
+		panic("TLS area too small");
+
 	_init_tls(area);
 	_set_tls(area);
 }

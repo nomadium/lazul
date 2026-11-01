@@ -2,14 +2,15 @@
 
 # Boots the kernel in QEMU and drives the serial console like a user would.
 # Usage: test/console_test.rb [smp] (default: $SMP or 4)
-# "make test" passes the QEMU command line for the architecture being built
-# in $QEMU_CMD; without it, the riscv64 kernel is run. BOOT=uefi says that
+# "make test" passes the architecture in $ARCH and its QEMU command line in
+# $QEMU_CMD; without them, the riscv64 kernel is run. BOOT=uefi says that
 # command boots through U-Boot and the EFI loader (make test BOOT=uefi).
 
 require "shellwords"
 require "timeout"
 
 SMP = Integer(ARGV[0] || ENV.fetch("SMP", 4))
+ARCH = ENV.fetch("ARCH", "riscv64")
 UEFI = ENV["BOOT"] == "uefi"
 # Booting through U-Boot takes longer: it scans for devices first.
 BOOT_TIMEOUT = UEFI ? 60 : 30

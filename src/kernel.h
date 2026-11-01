@@ -6,6 +6,7 @@
 #ifndef LAZUL_KERNEL_H
 #define LAZUL_KERNEL_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include <mruby.h>
@@ -56,13 +57,18 @@ uintptr_t	fdt_free_ram_end(uintptr_t, uintptr_t);
 void	arch_putc(int);
 
 /*
- * Boot hart only, before mruby starts: act on the boot argument (e.g. keep
- * the heap clear of what the firmware passed in memory).
+ * Boot hart only, first thing in boot_main(), before its CPU setup: act on
+ * the boot argument (e.g. size the heap from what the firmware says about
+ * memory) and set up what every hart's arch_cpu_init() relies on.
  */
 void	arch_early_init(uintptr_t);
 
-/* Point this hart's thread pointer at its TLS area and initialize it. */
-void	arch_set_tls(void *);
+/*
+ * Initialize this hart's TLS in the size bytes at area and point its
+ * thread pointer there. Where the thread pointer goes within the area
+ * depends on the architecture; panics if the area is too small for it.
+ */
+void	arch_set_tls(void *, size_t);
 
 /*
  * Per-hart CPU setup, with interrupts disabled: trap handling, and

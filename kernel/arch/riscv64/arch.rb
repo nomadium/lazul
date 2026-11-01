@@ -53,12 +53,13 @@ module Arch
 
     def console_uart
       u = @platform.uart or raise "no supported console UART in the device tree"
-      UART.new(u.base, u.irq, reg_shift: u.reg_shift, io_width: u.reg_io_width)
+      UART.new(MMIORegs.new(u.base, shift: u.reg_shift, width: u.reg_io_width), u.irq)
     end
 
     # The interrupt controller, or nil if there is none we support: an
-    # object with register(irq, &handler) and service(hartid), which calls
-    # the handlers of pending interrupts.
+    # object with register(irq, &handler) and service(hartid, pending),
+    # which calls the handlers of the interrupts pending on this hart
+    # (pending is what Arch.pending reported).
     def interrupt_controller
       PLIC.new(@platform.plic.base, @platform.plic.contexts) if @platform.plic
     end

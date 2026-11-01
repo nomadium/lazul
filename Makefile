@@ -8,6 +8,7 @@
 #   ARCH_ASM_SRCS   assembly sources in src/arch/$(ARCH)/
 #   ARCH_RUBY_SRCS  Ruby sources in kernel/arch/$(ARCH)/, loaded first
 #   ARCH_LDFLAGS    extra flags for linking the kernel
+#   CFLAGS_<name>   extra flags for compiling src/.../<name>.c (optional)
 #   QEMU, MEM, QEMU_FLAGS  how to run the kernel in QEMU
 #   BOOT_DEPS       what QEMU needs besides the kernel (e.g. a boot disk),
 #                   built by default and before run, debug and test
@@ -80,7 +81,7 @@ $(BUILD)/kernel_rb.c: $(RUBY_SRCS) $(MRBC) $(BUILD_FILES)
 
 $(BUILD)/%.o: src/%.c $(LIBMRUBY) $(BUILD_FILES)
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) $(CFLAGS_$(notdir $*)) -c -o $@ $<
 
 $(BUILD)/kernel_rb.o: $(BUILD)/kernel_rb.c $(BUILD_FILES)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -142,4 +143,5 @@ gdb: $(BUILD)/kernel.elf
 test: $(BUILD)/kernel.elf $(BOOT_DEPS)
 	test/console/line_editor_test.rb
 	test/fdt_test.rb
-	SMP=$(SMP) BOOT=$(BOOT) QEMU_CMD="$(QEMU) $(QEMU_FLAGS)" test/console_test.rb
+	ARCH=$(ARCH) SMP=$(SMP) BOOT=$(BOOT) QEMU_CMD="$(QEMU) $(QEMU_FLAGS)" \
+		test/console_test.rb

@@ -41,7 +41,7 @@ module Kern
     def tick(hartid)
       ipi, irq = Arch.pending
       Hart[hartid].run_queue if ipi
-      @irqc.service(hartid) if @irqc && irq
+      @irqc.service(hartid, irq) if @irqc && irq
     end
 
     def uptime_ms = (Arch.time - @boot_time) * 1000 / Arch.timebase_hz
