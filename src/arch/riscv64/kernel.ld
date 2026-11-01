@@ -91,6 +91,14 @@ ENTRY(_start)
  * fails if it does not fit. How much RAM there is, and so where the heap
  * ends, is not known until boot: arch_early_init() reads it from the
  * device tree.
+ *
+ * 30 MiB makes the region end at 0x82000000, 32 MiB into RAM counting
+ * OpenSBI's 2 MiB. It is a generous cap, not a measurement: the image is
+ * under 1 MiB today (riscv64-unknown-elf-size build/riscv64/kernel.elf;
+ * the debug sections in the file are not placed in the region). It stays
+ * small enough that the image fits in the RAM of the smallest machines
+ * in sight (64 MiB: QEMU -m 64M, the Milk-V Duo), so a runaway image
+ * fails the link instead of the boot.
  */
 MEMORY { ram (rwx) : ORIGIN = 0x80200000, LENGTH = 30M }
 
