@@ -200,7 +200,35 @@ ensure
   end
 end
 
-failures = t.failures + pt.failures
+# A kernel that cannot boot says why and panics. QEMU's sifive_u machine
+# has a UART the kernel has no driver for (sifive,uart0), so Kern.boot
+# raises there: the report must show the exception with its backtrace,
+# files and lines included (mrbc -g), and end in a panic. The machine and
+# its firmware are the same whatever BOOT is, so direct boots only.
+ft = nil
+unless UEFI
+  io = IO.popen(%W[qemu-system-riscv64 -machine sifive_u -smp 2 -nographic
+    -bios default -kernel #{KERNEL}], "r+", err: [:child, :out])
+  ft = ConsoleTest.new(io)
+  begin
+    out = ft.expect(/panic: .*\n/, timeout: BOOT_TIMEOUT)
+    ft.check("failed boot: exception reported",
+      out.include?("unhandled Ruby exception: #<RuntimeError: no supported console UART"))
+    ft.check("failed boot: backtrace with files and lines", out.match?(%r{\n +from kernel/\S+\.rb:\d+}))
+    ft.check("failed boot: panic", out.include?("panic: Kern.boot failed"))
+  rescue => e
+    ft.check(e.message, false)
+  ensure
+    begin
+      Process.kill(:KILL, io.pid)
+      Process.wait(io.pid)
+    rescue
+      nil
+    end
+  end
+end
+
+failures = t.failures + pt.failures + (ft ? ft.failures : 0)
 mode = "smp=#{SMP}#{", boot=uefi" if UEFI}"
 puts failures.zero? ? "all tests passed (#{mode})" : "#{failures} failure(s) (#{mode})"
 exit(failures.zero? ? 0 : 1)
