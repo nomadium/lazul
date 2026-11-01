@@ -62,8 +62,20 @@ enum efi_allocate_type {
 
 enum efi_memory_type {
 	EFI_LOADER_CODE = 1,
-	EFI_LOADER_DATA = 2
+	EFI_LOADER_DATA = 2,
+	EFI_CONVENTIONAL_MEMORY = 7	/* free memory */
 };
+
+/*
+ * One entry of the memory map. Entries are desc_size bytes apart, which
+ * may be more than sizeof(efi_memory_descriptor).
+ */
+typedef struct {
+	uint32_t	type;
+	uint32_t	pad;
+	uint64_t	physical_start, virtual_start;
+	uint64_t	number_of_pages, attribute;
+} efi_memory_descriptor;
 
 typedef struct {
 	efi_table_header hdr;

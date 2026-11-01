@@ -7,6 +7,7 @@
 #   ARCH_C_SRCS     C sources in src/arch/$(ARCH)/
 #   ARCH_ASM_SRCS   assembly sources in src/arch/$(ARCH)/
 #   ARCH_RUBY_SRCS  Ruby sources in kernel/arch/$(ARCH)/, loaded first
+#   ARCH_LDFLAGS    extra flags for linking the kernel
 #   QEMU, MEM, QEMU_FLAGS  how to run the kernel in QEMU
 #   BOOT_DEPS       what QEMU needs besides the kernel (e.g. a boot disk),
 #                   built by default and before run, debug and test
@@ -41,7 +42,7 @@ CFLAGS := $(ARCH_FLAGS) $(LIBC_SPECS) -std=gnu99 -O2 -g             \
            -DMRB_NO_STDIO -DMRB_INT64 -DMRB_UTF8_STRING
 LDFLAGS := $(ARCH_FLAGS) $(LIBC_SPECS) -nostartfiles \
            -T src/arch/$(ARCH)/kernel.ld \
-           -Wl,--gc-sections -Wl,-Map,$(BUILD)/kernel.map
+           -Wl,--gc-sections -Wl,-Map,$(BUILD)/kernel.map $(ARCH_LDFLAGS)
 
 # Kernel Ruby sources, in load order: libraries and architecture specific
 # code first.

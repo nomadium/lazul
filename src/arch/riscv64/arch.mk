@@ -13,6 +13,9 @@ OBJCOPY := $(CROSS)objcopy
 
 ARCH_FLAGS := -march=rv64imac_zicsr_zifencei -mabi=lp64 -mcmodel=medany
 LIBC_SPECS := --specs=picolibc.specs
+# Keep the relocation records in kernel.elf, so that the EFI loader can
+# move the kernel to wherever a board has free RAM (see loader.c).
+ARCH_LDFLAGS := -Wl,--emit-relocs
 
 ARCH_C_SRCS    := src/arch/riscv64/arch.c src/arch/riscv64/hal.c
 ARCH_ASM_SRCS  := src/arch/riscv64/start.S
@@ -45,9 +48,11 @@ $(ESP)/EFI/BOOT/BOOTRISCV64.EFI: $(BUILD)/BOOTRISCV64.EFI
 	@mkdir -p $(@D)
 	cp $< $@
 
+# Without debug information, which the loader does not need and which
+# --emit-relocs makes several times larger than the kernel.
 $(ESP)/kernel.elf: $(BUILD)/kernel.elf
 	@mkdir -p $(@D)
-	cp $< $@
+	$(OBJCOPY) --strip-debug $< $@
 
 BOOT_DEPS := $(ESP)/EFI/BOOT/BOOTRISCV64.EFI $(ESP)/kernel.elf
 

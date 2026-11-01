@@ -68,7 +68,13 @@ t = ConsoleTest.new(io)
 
 begin
   boot = t.expect(/#{SMP} hart\(s\) online; type 'help'#{PROMPT}\z/o, timeout: BOOT_TIMEOUT)
-  t.check("booted through the EFI loader", boot.include?("lazul EFI loader")) if UEFI
+  if UEFI
+    t.check("booted through the EFI loader", boot.include?("lazul EFI loader"))
+    # The loader puts the kernel in the lowest free memory, not where it was
+    # linked to run, so the whole test runs on a relocated kernel.
+    linked, loaded = boot.match(/kernel linked at (0x\h+), loaded at (0x\h+)/)&.captures
+    t.check("kernel relocated", linked && loaded != linked && boot.include?("relocated 0x"))
+  end
   puts boot if ENV["VERBOSE"]
   # What the kernel found in the device tree.
   t.check("banner: harts", boot.include?("harts: #{(0...SMP).to_a.join(", ")}; timebase 10000000 Hz"))

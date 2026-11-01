@@ -4,16 +4,23 @@
  * program.
  *
  * Its only job: read \kernel.elf from the partition it was loaded from,
- * place the ELF's loadable segments at their physical addresses, leave
- * UEFI boot services and jump to the kernel's entry point with the same
- * register contract as a direct boot from OpenSBI:
+ * place the ELF's loadable segments in the lowest free memory that holds
+ * them, relocate the kernel there, leave UEFI boot services and jump to
+ * the kernel's entry point with the same register contract as a direct
+ * boot from OpenSBI:
  *   a0 = boot hart id (from RISCV_EFI_BOOT_PROTOCOL)
  *   a1 = device tree  (from the EFI configuration table)
  *
- * It must stay position independent (the firmware loads it anywhere and
- * there are no relocations to apply): -mcmodel=medany makes all code
- * PC-relative, and there must be no jump tables and no pointers in
- * initialized data.
+ * The kernel is an ordinary executable linked at a fixed address, built
+ * with --emit-relocs so that it keeps its relocation records. Its code is
+ * all PC-relative (-mcmodel=medany), so moving it only takes adding the
+ * distance moved to every absolute address stored in its data: each
+ * R_RISCV_64 relocation (see relocate()).
+ *
+ * The loader itself must stay position independent (the firmware loads it
+ * anywhere and there are no relocations to apply): -mcmodel=medany makes
+ * all code PC-relative, and there must be no jump tables and no pointers
+ * in initialized data.
  */
 #include <stdint.h>
 
@@ -22,7 +29,11 @@
 #define	KERNEL_PATH	u"\\kernel.elf"
 #define	PAGE_SIZE	4096
 
-/* The ELF64 file and program headers, and the values the loader checks. */
+/*
+ * The parts of ELF64 the loader reads: the file header, program headers
+ * (what to load where), section headers, symbols and relocations (how to
+ * move it).
+ */
 struct elf64_ehdr {
 	uint8_t		ident[16];
 	uint16_t	type, machine;
@@ -37,8 +48,38 @@ struct elf64_phdr {
 	uint64_t	offset, vaddr, paddr, filesz, memsz, align;
 };
 
+struct elf64_shdr {
+	uint32_t	name, type;
+	uint64_t	flags, addr, offset, size;
+	uint32_t	link, info;
+	uint64_t	addralign, entsize;
+};
+
+struct elf64_sym {
+	uint32_t	name;
+	uint8_t		info, other;
+	uint16_t	shndx;
+	uint64_t	value, size;
+};
+
+struct elf64_rela {
+	uint64_t	offset, info;
+	int64_t		addend;
+};
+
 #define	PT_LOAD		1
 #define	EM_RISCV	243
+#define	SHT_RELA	4
+#define	SHF_ALLOC	0x2		/* the section is loaded */
+#define	SHN_UNDEF	0
+#define	SHN_ABS		0xfff1		/* a number, not an address */
+
+/* Relocation types (RISC-V ELF psABI) that hold an absolute address. */
+#define	R_RISCV_32		1
+#define	R_RISCV_64		2
+#define	R_RISCV_HI20		26
+#define	R_RISCV_LO12_I		27
+#define	R_RISCV_LO12_S		28
 
 static efi_system_table *st;
 static efi_boot_services *bs;
@@ -123,17 +164,140 @@ fail(const char *msg, efi_status status)
 }
 
 /*
- * Copy every PT_LOAD segment of the ELF file at image to its physical
- * address, and set *entry. The whole span that the segments cover is
- * reserved with the firmware first, in one allocation since segments may
- * share a page, so that nothing else is using that memory.
+ * Read the current memory map into a buffer from the pool; free it with
+ * free_pool(). Allocating the buffer can grow the map, hence the slack.
+ */
+static efi_status
+get_memory_map(void **map, uint64_t *size, uint64_t *key,
+    uint64_t *desc_size)
+{
+	uint32_t desc_version;
+	efi_status s;
+
+	*map = 0;
+	*size = 0;
+	s = bs->get_memory_map(size, *map, key, desc_size, &desc_version);
+	if (s != EFI_BUFFER_TOO_SMALL)
+		return s == EFI_SUCCESS ? EFI_LOAD_ERROR : s;
+	*size += 4 * *desc_size;
+	s = bs->allocate_pool(EFI_LOADER_DATA, *size, map);
+	if (s != EFI_SUCCESS)
+		return s;
+	s = bs->get_memory_map(size, *map, key, desc_size, &desc_version);
+	if (s != EFI_SUCCESS)
+		bs->free_pool(*map);
+	return s;
+}
+
+/*
+ * Reserve the lowest free run of pages pages, and set *base to it. Low,
+ * because the kernel's heap runs from the end of the kernel to the end of
+ * its RAM: a kernel at the top of RAM would leave it none.
+ */
+static efi_status
+allocate_low(uint64_t pages, uint64_t *base)
+{
+	const efi_memory_descriptor *d;
+	uint64_t desc_size, i, key, size;
+	void *map;
+	efi_status s;
+
+	s = get_memory_map(&map, &size, &key, &desc_size);
+	if (s != EFI_SUCCESS)
+		return s;
+	*base = ~0ULL;
+	for (i = 0; i + desc_size <= size; i += desc_size) {
+		d = (const efi_memory_descriptor *)((uint8_t *)map + i);
+		if (d->type == EFI_CONVENTIONAL_MEMORY &&
+		    d->number_of_pages >= pages && d->physical_start < *base)
+			*base = d->physical_start;
+	}
+	bs->free_pool(map);
+	if (*base == ~0ULL)
+		return EFI_BUFFER_TOO_SMALL;
+	return bs->allocate_pages(ALLOCATE_ADDRESS, EFI_LOADER_CODE, pages,
+	    base);
+}
+
+/*
+ * Move the kernel, which load_elf() copied delta = base - link_lo bytes
+ * away from where it was linked to run: add delta to every absolute
+ * address stored in a loaded section, which is what each R_RISCV_64
+ * relocation records. Relocations against symbols that are numbers
+ * (SHN_ABS, e.g. sizes from the linker script) or undefined (weak, left 0)
+ * are not addresses and stay as they are. Every other relocation is
+ * PC-relative or a difference of two addresses, which moving everything
+ * together leaves right. An absolute address in code would need its
+ * instructions rewritten, so that is refused.
+ */
+static efi_status
+relocate(const uint8_t *image, uint64_t size, uint64_t link_lo,
+    uint64_t base)
+{
+	const struct elf64_ehdr *eh = (const struct elf64_ehdr *)image;
+	const struct elf64_shdr *rel, *sh, *symtab;
+	const struct elf64_rela *r;
+	const struct elf64_sym *sym;
+	uint64_t delta = base - link_lo, done = 0, i, j, nsyms, type;
+
+	if (eh->shoff == 0 || eh->shentsize != sizeof(*sh) ||
+	    eh->shoff + eh->shnum * sizeof(*sh) > size)
+		return fail("kernel.elf has no section headers", 0);
+	sh = (const struct elf64_shdr *)(image + eh->shoff);
+
+	for (i = 0; i < eh->shnum; i++) {
+		rel = &sh[i];
+		if (rel->type != SHT_RELA || rel->info >= eh->shnum ||
+		    rel->link >= eh->shnum)
+			continue;
+		if ((sh[rel->info].flags & SHF_ALLOC) == 0)
+			continue;	/* e.g. debug information */
+		symtab = &sh[rel->link];
+		if (rel->offset + rel->size > size ||
+		    symtab->offset + symtab->size > size)
+			return fail("truncated relocations", 0);
+		nsyms = symtab->size / sizeof(*sym);
+		r = (const struct elf64_rela *)(image + rel->offset);
+		for (j = 0; j < rel->size / sizeof(*r); j++, r++) {
+			type = r->info & 0xffffffff;
+			if (type != R_RISCV_64 && type != R_RISCV_32 &&
+			    type != R_RISCV_HI20 && type != R_RISCV_LO12_I &&
+			    type != R_RISCV_LO12_S)
+				continue;	/* relative: still right */
+			if ((r->info >> 32) >= nsyms)
+				return fail("bad symbol in a relocation", 0);
+			sym = (const struct elf64_sym *)(image +
+			    symtab->offset) + (r->info >> 32);
+			if (sym->shndx == SHN_ABS || sym->shndx == SHN_UNDEF)
+				continue;	/* a number, not an address */
+			if (type != R_RISCV_64)
+				return fail("absolute address in kernel code; "
+				    "build it with -mcmodel=medany", 0);
+			*(uint64_t *)(r->offset + delta) += delta;
+			done++;
+		}
+	}
+	print("  relocated ");
+	print_hex(done);
+	print(" addresses by ");
+	print_hex(delta);
+	print("\n");
+	return EFI_SUCCESS;
+}
+
+/*
+ * Place the ELF file at image in memory and set *entry. The whole span
+ * that its PT_LOAD segments cover is reserved with the firmware first, in
+ * one allocation since segments may share a page: the lowest free pages
+ * that hold it, wherever the kernel was linked to run, which works on any
+ * board whatever its RAM addresses. The kernel is then relocated there.
  */
 static efi_status
 load_elf(const uint8_t *image, uint64_t size, uint64_t *entry)
 {
 	const struct elf64_ehdr *eh = (const struct elf64_ehdr *)image;
 	const struct elf64_phdr *ph;
-	uint64_t hi = 0, lo = ~0ULL, pages, start;
+	uint64_t base, delta, hi = 0, lo = ~0ULL, pages;
 	efi_status s;
 	unsigned i;
 
@@ -158,29 +322,34 @@ load_elf(const uint8_t *image, uint64_t size, uint64_t *entry)
 	if (hi == 0)
 		return fail("no loadable segments", 0);
 
-	start = lo & ~(uint64_t)(PAGE_SIZE - 1);
-	pages = (hi - start + PAGE_SIZE - 1) / PAGE_SIZE;
-	s = bs->allocate_pages(ALLOCATE_ADDRESS, EFI_LOADER_CODE, pages,
-	    &start);
-	if (s != EFI_SUCCESS) {
-		print("kernel needs ");
-		print_hex(lo);
-		print("-");
-		print_hex(hi);
-		print("\n");
-		return fail("that memory is not available", s);
-	}
+	lo &= ~(uint64_t)(PAGE_SIZE - 1);
+	pages = (hi - lo + PAGE_SIZE - 1) / PAGE_SIZE;
+	if ((s = allocate_low(pages, &base)) != EFI_SUCCESS)
+		return fail("no free memory for the kernel", s);
+	delta = base - lo;
 
 	for (i = 0; i < eh->phnum; i++) {
 		ph = (const struct elf64_phdr *)(image + eh->phoff +
 		    i * eh->phentsize);
 		if (ph->type != PT_LOAD || ph->memsz == 0)
 			continue;
-		memcpy((void *)ph->paddr, image + ph->offset, ph->filesz);
-		memset((void *)(ph->paddr + ph->filesz), 0,
+		memcpy((void *)(ph->paddr + delta), image + ph->offset,
+		    ph->filesz);
+		memset((void *)(ph->paddr + delta + ph->filesz), 0,
 		    ph->memsz - ph->filesz);
 	}
-	*entry = eh->entry;
+
+	print("  kernel linked at ");
+	print_hex(lo);
+	print(", loaded at ");
+	print_hex(base);
+	print("\n");
+	if (delta != 0) {
+		s = relocate(image, size, lo, base);
+		if (s != EFI_SUCCESS)
+			return s;
+	}
+	*entry = eh->entry + delta;
 	return EFI_SUCCESS;
 }
 

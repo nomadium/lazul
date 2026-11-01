@@ -45,10 +45,18 @@ By default QEMU loads `kernel.elf` and OpenSBI jumps straight to it.
 whose EFI boot manager finds `\EFI\BOOT\BOOTRISCV64.EFI` on a FAT disk
 (QEMU's emulated view of `build/riscv64/esp/`). That is lazul's EFI loader
 (`src/arch/riscv64/loader/`): it reads `\kernel.elf` from the same disk,
-places it at its link address, exits boot services and jumps to the kernel
-with the boot hart id and the device tree, as OpenSBI would. To boot a
-board with U-Boot, copy `build/riscv64/esp/` onto its EFI system
-partition. QEMU gets 256 MiB of RAM this way, as U-Boot needs it.
+places it in the lowest free memory, wherever the board's RAM is, exits
+boot services and jumps to the kernel with the boot hart id and the device
+tree, as OpenSBI would. To boot a board with U-Boot, copy
+`build/riscv64/esp/` onto its EFI system partition. QEMU gets 256 MiB of
+RAM this way, as U-Boot needs it.
+
+The kernel is still linked at a fixed address (0x80200000), with
+`--emit-relocs` so that `kernel.elf` keeps its relocation records; the
+loader moves it by adding the distance to every absolute address in its
+data, and prints both addresses. To debug a kernel that was moved, load
+its symbols at that distance in gdb: `symbol-file -o <loaded - linked>
+build/riscv64/kernel.elf`.
 
 ## Debugging
 

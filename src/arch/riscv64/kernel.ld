@@ -81,8 +81,11 @@ ENTRY(_start)
  * ORIGIN: QEMU virt's RAM starts at 0x80000000. OpenSBI (-bios default)
  * takes the first 2 MiB and jumps to the next stage at 0x80200000, so
  * the kernel is linked to run there. The MMU is off, so these are
- * physical addresses and the code must sit exactly there: the address is
- * baked into every absolute reference in the binary.
+ * physical addresses, and the address is baked into every absolute
+ * reference in the binary. A direct boot (OpenSBI, or QEMU -kernel) must
+ * load it exactly there. The EFI loader may place it elsewhere and then
+ * relocates it, using the relocation records kept by --emit-relocs
+ * (arch.mk, and relocate() in loader/loader.c).
  *
  * LENGTH: room for the kernel image itself (code, data and bss); the link
  * fails if it does not fit. How much RAM there is, and so where the heap
