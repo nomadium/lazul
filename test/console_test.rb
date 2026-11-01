@@ -69,6 +69,9 @@ begin
   t.check("banner: harts", boot.include?("harts: #{(0...SMP).to_a.join(", ")}; timebase 10000000 Hz"))
   t.check("banner: console", boot.include?("console: /soc/serial@10000000 at 0x10000000, irq 10"))
   t.check("banner: plic", boot.include?("interrupts: PLIC at 0xc000000"))
+  # QEMU puts the device tree at the top of RAM, so the heap ends there.
+  dtb = boot[/device tree at (0x\h+)/, 1]
+  t.check("heap ends at the device tree", dtb && boot.include?("-#{dtb}\r\n"))
   boot_hart = boot[/Ruby is running on hart (\d+)/, 1].to_i  # OpenSBI picks it at random
   (0...SMP).each { |i| t.check("hart #{i} up", i == boot_hart || boot.include?("hart #{i} online")) }
 

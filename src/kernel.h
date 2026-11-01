@@ -18,10 +18,13 @@
 /* Id of the hart running this code, or -1 before its setup is done. */
 extern __thread int this_hartid;
 
-/* Start and end of the kernel heap, set by the linker script. */
+/*
+ * Start of the kernel heap, and its end as far as the linker script knows,
+ * both set by the linker script.
+ */
 extern char __heap_end[], __heap_start[];
 
-/* End of the kernel heap; arch_early_init() may lower it. */
+/* End of the kernel heap; starts at __heap_end, arch_early_init() sets it. */
 extern char *heap_limit;
 
 /* main.c */
@@ -33,6 +36,9 @@ NORETURN void	secondary_main(long, uintptr_t);
 
 /* hal.c */
 void	hal_init(mrb_state *);
+
+/* fdt.c */
+uintptr_t	fdt_free_ram_end(uintptr_t, uintptr_t);
 
 /*
  * Provided by each architecture, in src/arch/<arch>/, together with the

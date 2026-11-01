@@ -1,6 +1,7 @@
 /*
  * riscv64 side of the architecture interface in kernel.h: the kernel runs
- * in S-mode under SBI firmware (OpenSBI), on QEMU's virt machine.
+ * in S-mode under SBI firmware (OpenSBI), on a machine described by the
+ * device tree the firmware passes in.
  *
  * Interrupts stay globally disabled (sstatus.SIE = 0) and are never taken
  * as traps: wfi wakes up on any interrupt pending in sie, and Ruby then
@@ -22,15 +23,16 @@ arch_putc(int c)
 }
 
 /*
- * boot_arg is the device tree address. QEMU puts the device tree at the
- * top of RAM; keep the heap below it.
+ * boot_arg is the device tree address. The heap runs from the end of the
+ * kernel to the end of its RAM region, or to the first reserved range
+ * before that (e.g. the device tree itself, which QEMU puts at the top of
+ * RAM), whatever the device tree says the machine has.
  */
 void
 arch_early_init(uintptr_t boot_arg)
 {
-	if (boot_arg > (uintptr_t)__heap_start &&
-	    boot_arg < (uintptr_t)heap_limit)
-		heap_limit = (char *)(boot_arg & ~0xfffUL);
+	heap_limit = (char *)(fdt_free_ram_end(boot_arg,
+	    (uintptr_t)__heap_start) & ~0xfffUL);
 }
 
 /* picolibc keeps the thread pointer in tp and knows how to set it up. */

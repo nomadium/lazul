@@ -46,7 +46,7 @@ LDFLAGS := $(ARCH_FLAGS) $(LIBC_SPECS) -nostartfiles \
 RUBY_SRCS := kernel/fdt.rb $(ARCH_RUBY_SRCS) kernel/uart.rb \
              kernel/console/line_editor.rb kernel/console.rb kernel/hart.rb \
              kernel/shell.rb kernel/kern.rb
-C_SRCS  := src/main.c src/hal.c $(ARCH_C_SRCS)
+C_SRCS  := src/main.c src/hal.c src/fdt.c $(ARCH_C_SRCS)
 OBJS    := $(ARCH_ASM_SRCS:src/%.S=$(BUILD)/%.o) \
            $(C_SRCS:src/%.c=$(BUILD)/%.o) $(BUILD)/kernel_rb.o
 DEPS    := $(OBJS:.o=.d)

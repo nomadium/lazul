@@ -1,5 +1,6 @@
 /*
- * kernel linker script: QEMU virt, S-mode payload loaded by OpenSBI.
+ * kernel linker script: S-mode payload loaded by OpenSBI at 0x80200000
+ * (as on QEMU virt).
  *
  * The compiler turns each .c and .S file into an object file (.o). Every
  * object holds named *sections* of code or data: .text for code, .rodata
@@ -44,10 +45,10 @@
  *   __heap_start+--------------------+  __kernel_end
  *               | heap               |  handed out by sbrk() in main.c
  *               |                    |  to malloc, i.e. to mruby
- *   __heap_end  +--------------------+  ORIGIN(ram) + LENGTH(ram)
- *               | (the DTB may sit   |  boot_main() lowers heap_limit
- *               |  here, or lower)   |  if it lies inside the heap
- *   0x88000000  +--------------------+  end of RAM with -m 128M
+ *   heap_limit  +--------------------+  set at boot from the device tree
+ *               | the DTB, or other  |  (arch_early_init, fdt.c): the
+ *               | reserved memory    |  first reserved range, or the end
+ *   end of RAM  +--------------------+  of RAM (0x88000000 with -m 128M)
  *
  * Syntax notes for reading the rest:
  *   - "."  is the location counter: the address the linker will place the
@@ -82,13 +83,12 @@ ENTRY(_start)
  * physical addresses and the code must sit exactly there: the address is
  * baked into every absolute reference in the binary.
  *
- * LENGTH: 128 MiB of RAM (MEM ?= 128M in the Makefile) minus those 2 MiB.
- * It sets __heap_end below, so it has to agree with the RAM that QEMU
- * gives the machine. With more RAM the rest goes unused; with less the
- * heap would run past the end of RAM. The linker also fails the link if
- * the sections themselves overflow this region.
+ * LENGTH: room for the kernel image itself (code, data and bss); the link
+ * fails if it does not fit. How much RAM there is, and so where the heap
+ * ends, is not known until boot: arch_early_init() reads it from the
+ * device tree.
  */
-MEMORY { ram (rwx) : ORIGIN = 0x80200000, LENGTH = 126M }
+MEMORY { ram (rwx) : ORIGIN = 0x80200000, LENGTH = 30M }
 
 /*
  * Program headers, or *segments*: what a loader looks at. A section is
@@ -254,22 +254,22 @@ SECTIONS
   } >ram :data
 
   /*
-   * Everything from here to the end of the region is the heap. It starts
-   * at the next 4 KiB page boundary after the kernel image. Nothing needs
-   * the page alignment yet, but page tables, once there is an MMU setup,
-   * map whole pages.
+   * Everything from here to heap_limit (the end of RAM, read from the
+   * device tree at boot) is the heap. It starts at the next 4 KiB page
+   * boundary after the kernel image. Nothing needs the page alignment
+   * yet, but page tables, once there is an MMU setup, map whole pages.
    *
    * These symbols are not in any section: they are plain addresses.
    *   __kernel_end   first byte after the kernel image
    *   __heap_start   first byte of the heap (same address); sbrk() starts
    *                  here, and Ruby sees it as Kern::HEAP_START
-   *   __heap_end     end of RAM as described by MEMORY above; main.c
-   *                  starts heap_limit here
+   *   __heap_end     the same again: an empty heap until main.c's
+   *                  heap_limit is set from the device tree at boot
    */
   . = ALIGN(4096);
   __kernel_end = .;
   __heap_start = .;
-  __heap_end = ORIGIN(ram) + LENGTH(ram);
+  __heap_end = .;
 
   /*
    * Input sections that are thrown away instead of linked in:
