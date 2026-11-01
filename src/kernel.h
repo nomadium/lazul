@@ -43,7 +43,10 @@ uintptr_t	fdt_free_ram_end(uintptr_t, uintptr_t);
 /*
  * Provided by each architecture, in src/arch/<arch>/, together with the
  * entry points (start.S), which set up a stack and call boot_main() or
- * secondary_main() with the hart id and an architecture-defined argument.
+ * secondary_main() with the hart id and an argument: for boot_main(), an
+ * architecture-defined one; for secondary_main(), the hart's area (see
+ * Kern.alloc_hart_area in hal.c), whose address is the top of the stack
+ * the entry code has switched to.
  */
 
 /*

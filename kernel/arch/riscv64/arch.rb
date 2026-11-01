@@ -76,12 +76,15 @@ module Arch
     end
 
     # Start hart id if the firmware has it stopped. It comes up in C at
-    # _secondary_start and calls Kern.hart_started. Returns false if there
-    # is no such hart.
+    # _secondary_start, on the stack of the area passed as the opaque
+    # value, and calls Kern.hart_started. Returns false if there is no such
+    # hart.
     def start_hart(id)
       status = SBI.hart_status(id)
       return false unless status
-      SBI.hart_start(id, Kern::SECONDARY_ENTRY) if status == SBI::HART_STOPPED
+      if status == SBI::HART_STOPPED
+        SBI.hart_start(id, Kern::SECONDARY_ENTRY, Kern.alloc_hart_area)
+      end
       true
     end
 

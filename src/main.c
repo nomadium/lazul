@@ -30,8 +30,6 @@
 
 #include "kernel.h"
 
-#define	TLS_AREA	256
-
 /* Arguments of a call into Ruby, passed through mrb_protect_error(). */
 struct kcall {
 	mrb_int	argc;
@@ -53,7 +51,7 @@ char *heap_limit = __heap_end;
 
 static struct ticket_lock bkl;	/* big kernel lock */
 static char *heap_brk = __heap_start;
-static uint8_t hart_tls[MAX_HARTS][TLS_AREA] __attribute__((__aligned__(16)));
+static uint8_t boot_tls[TLS_AREA] __attribute__((__aligned__(16)));
 static mrb_state *mrb;
 
 /*
@@ -203,17 +201,17 @@ kern_call(const char *name, mrb_int argc, const mrb_value *argv)
 	mrb_gc_arena_restore(mrb, ai);
 }
 
-/* Give this hart its TLS and set up its CPU, with interrupts disabled. */
+/*
+ * Give this hart its TLS, in the TLS_AREA bytes at tls, and set up its
+ * CPU, with interrupts disabled.
+ */
 void
-hart_setup(long hartid)
+hart_setup(long hartid, void *tls)
 {
-	if (hartid < 0 || hartid >= MAX_HARTS)
-		panic("hart id out of range");
-
 	if (_tls_size() > TLS_AREA)
 		panic("TLS area too small");
 
-	arch_set_tls(hart_tls[hartid]);
+	arch_set_tls(tls);
 	this_hartid = hartid;
 
 	arch_cpu_init(hartid);
@@ -246,7 +244,7 @@ boot_main(long hartid, uintptr_t boot_arg)
 {
 	mrb_value args[2];
 
-	hart_setup(hartid);
+	hart_setup(hartid, boot_tls);
 	kputs("lazul: booting on hart ");
 	kputhex(hartid);
 	kputs("\n");
@@ -275,16 +273,17 @@ boot_main(long hartid, uintptr_t boot_arg)
 /*
  * C entry point of every other hart, called by the architecture's start.S
  * once Ruby has started the hart (on riscv64, through the SBI HSM
- * extension). Set up the hart, tell Kern.hart_started about it and become
- * its idle loop. opaque is an architecture-defined value; it is unused.
+ * extension). area is the hart's area from Kern.alloc_hart_area: start.S
+ * has made the stack below it the hart's stack, and the TLS area above it
+ * becomes the hart's TLS. Set up the hart, tell Kern.hart_started about it
+ * and become its idle loop.
  */
 NORETURN void
-secondary_main(long hartid, uintptr_t opaque)
+secondary_main(long hartid, uintptr_t area)
 {
 	mrb_value id;
 
-	(void)opaque;
-	hart_setup(hartid);
+	hart_setup(hartid, (void *)area);
 	bkl_acquire();
 	id = mrb_fixnum_value(hartid);
 	kern_call("hart_started", 1, &id);

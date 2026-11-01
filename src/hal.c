@@ -7,11 +7,14 @@
  *   Memory.read32(addr) -> Integer, Memory.write32(addr, v)  (8/16/32/64)
  *   Memory.read_bytes(addr, len) -> String (a copy, e.g. of a firmware table)
  *   CPU.hartid, CPU.fence
- *   Kern::MAX_HARTS, Kern::HEAP_START, Kern::HEAP_END
+ *   Kern.alloc_hart_area -> Integer (a stack and TLS area for one more hart)
+ *   Kern::HEAP_START, Kern::HEAP_END
  *
  * Architecture specific primitives (registers, firmware calls, ...) are
  * added by arch_hal_init() in src/arch/<arch>/hal.c.
  */
+#include <stdlib.h>
+
 #include <mruby.h>
 #include <mruby/presym.h>
 #include <mruby/string.h>
@@ -72,6 +75,24 @@ cpu_fence(mrb_state *mrb, mrb_value self)
 	return mrb_nil_value();
 }
 
+/*
+ * Kern.alloc_hart_area: memory for one more hart, allocated once the
+ * device tree has said which harts there are, before starting the hart.
+ * It is a stack of 1 << STACK_SHIFT bytes with the hart's TLS_AREA bytes
+ * of TLS right above it; the address returned is where the two meet, so
+ * it is both the initial stack pointer and the TLS area. Never freed.
+ */
+mrb_value
+kern_alloc_hart_area(mrb_state *mrb, mrb_value self)
+{
+	void *area;
+
+	if (posix_memalign(&area, 16, (1UL << STACK_SHIFT) + TLS_AREA) != 0)
+		mrb_raise(mrb, E_RUNTIME_ERROR, "no memory for a hart's stack");
+	return mrb_int_value(mrb,
+	    (mrb_int)((uint8_t *)area + (1UL << STACK_SHIFT)));
+}
+
 /* Define the Memory, CPU and Kern modules described above in mrb. */
 void
 hal_init(mrb_state *mrb)
@@ -103,7 +124,8 @@ hal_init(mrb_state *mrb)
 	    MRB_ARGS_NONE());
 
 	kern = mrb_define_module(mrb, "Kern");
-	mrb_define_const(mrb, kern, "MAX_HARTS", mrb_fixnum_value(MAX_HARTS));
+	mrb_define_module_function(mrb, kern, "alloc_hart_area",
+	    kern_alloc_hart_area, MRB_ARGS_NONE());
 	mrb_define_const(mrb, kern, "HEAP_START",
 	    mrb_int_value(mrb, (mrb_int)__heap_start));
 	mrb_define_const(mrb, kern, "HEAP_END",

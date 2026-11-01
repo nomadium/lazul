@@ -5,7 +5,7 @@
 #ifndef LAZUL_CONFIG_H
 #define LAZUL_CONFIG_H
 
-#define	MAX_HARTS	8	/* harts with a stack and TLS area */
 #define	STACK_SHIFT	17	/* 128 KiB per hart; mruby recurses deeply */
+#define	TLS_AREA	256	/* bytes of thread-local storage per hart */
 
 #endif

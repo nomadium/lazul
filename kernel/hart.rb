@@ -19,10 +19,6 @@ class Hart
     def start_secondaries(ids)
       ids.each do |id|
         next if @harts[id]
-        if id >= Kern::MAX_HARTS
-          puts "  hart #{id}: ignored (MAX_HARTS is #{Kern::MAX_HARTS})"
-          next
-        end
         add(id, :starting) if Arch.start_hart(id)
       end
     end

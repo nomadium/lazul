@@ -38,8 +38,9 @@
  *               |   .sdata           |  small ones, near gp
  *               | .tdata / .tbss     |  the TLS template
  *               | .bss               |  zeroed by _start
- *               |   hart_stacks      |  1 MiB, from start.S
- *               |   hart_tls, ...    |
+ *               |   boot_stack       |  128 KiB, from start.S
+ *               |   boot_tls, ...    |  (other harts' stacks and TLS
+ *               |                    |  come from the heap)
  *               +--------------------+  (second segment: read + write)
  *               | (padding)          |  up to a 4 KiB boundary
  *   __heap_start+--------------------+  __kernel_end
@@ -195,7 +196,9 @@ SECTIONS
    * The compiler puts initialised ones in .tdata and zeroed ones in .tbss.
    * Together they form the *TLS template*: the image every hart's copy
    * starts from. At run time hart_setup() in main.c gives each hart a
-   * block in hart_tls[], and arch_set_tls() (arch.c) has picolibc fill it:
+   * block (boot_tls for the boot hart, the TLS part of its area from
+   * Kern.alloc_hart_area for the others), and arch_set_tls() (arch.c) has
+   * picolibc fill it:
    *   _init_tls(block)  copies .tdata to the start of the block and zeroes
    *                     the .tbss part after it
    *   _set_tls(block)   points the tp register at the block
@@ -225,7 +228,7 @@ SECTIONS
 
   /*
    * Zero-initialised data: variables with no initial value or an initial
-   * value of zero, e.g. hart_stacks (start.S), hart_tls, bkl and mrb
+   * value of zero, e.g. boot_stack (start.S), boot_tls, bkl and mrb
    * (main.c). None of it is stored in the file (NOLOAD; the section is of
    * type NOBITS). The memory has to be zeroed before C code runs: _start
    * clears every byte from __bss_start up to __bss_end.
@@ -236,7 +239,7 @@ SECTIONS
    *
    * .sbss gets a line of its own, ahead of the rest. Within one line the
    * linker places sections in the order it meets them, file by file, not
-   * grouped by pattern. With a single line, hart_stacks (1 MiB, from
+   * grouped by pattern. With a single line, boot_stack (128 KiB, from
    * start.o, the first file of the link) would open .bss and push the
    * small variables out of gp's reach (see the gp note above). Separate
    * lines are filled one after the other, so .sbss comes right after the
@@ -304,8 +307,8 @@ SECTIONS
  *                   .tdata plus alignment padding)
  *   __tbss_size     how many bytes to zero there
  *   __tls_size      size of one whole TLS block; _tls_size() returns it,
- *                   and hart_setup() panics if it outgrows TLS_AREA, the
- *                   size of each hart's block in hart_tls[]
+ *                   and hart_setup() panics if it outgrows TLS_AREA
+ *                   (config.h), the size of each hart's block
  *   __tls_align     alignment a TLS block needs
  *
  * PROVIDE defines a symbol only if something references it and nothing

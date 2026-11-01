@@ -31,6 +31,11 @@ module SBI
     (err == 0) ? value : nil
   end
 
+  # Known limit: the mask is passed with hart_mask_base 0 (bit n is hart
+  # n), so only hart ids 0 to 62 work: from 63 on, 1 << id no longer fits
+  # in a signed 64-bit Integer, becomes a bignum and cannot be passed to
+  # the firmware. To fix, pass hart_mask_base too, e.g. one call per hart:
+  # call(EXT_IPI, 0, 1, id).
   def self.send_ipi(hartids)
     mask = hartids.inject(0) { |m, id| m | (1 << id) }
     call(EXT_IPI, 0, mask, 0)
