@@ -30,12 +30,13 @@ LOADER     := src/arch/riscv64/loader
 EFI_CFLAGS := $(ARCH_FLAGS) -std=gnu11 -O2 -Wall -ffreestanding -fno-pic \
               -fno-stack-protector -fno-jump-tables -fshort-wchar
 
-$(BUILD)/loader.elf: $(LOADER)/loader.c $(LOADER)/efi.h $(LOADER)/loader.ld
+$(BUILD)/loader.elf: $(LOADER)/loader.c $(LOADER)/efi.h $(LOADER)/loader.ld \
+                     $(BUILD_FILES)
 	@mkdir -p $(@D)
 	$(CC) $(EFI_CFLAGS) -nostdlib -static -Wl,--build-id=none \
 		-T $(LOADER)/loader.ld -o $@ $(LOADER)/loader.c
 
-$(BUILD)/BOOTRISCV64.EFI: $(BUILD)/loader.elf
+$(BUILD)/BOOTRISCV64.EFI: $(BUILD)/loader.elf $(BUILD_FILES)
 	$(OBJCOPY) --target=pei-riscv64-little --subsystem=efi-app -S \
 		-j .text -j .rodata -j .data $< $@
 
@@ -50,7 +51,7 @@ $(ESP)/EFI/BOOT/BOOTRISCV64.EFI: $(BUILD)/BOOTRISCV64.EFI
 
 # Without debug information, which the loader does not need and which
 # --emit-relocs makes several times larger than the kernel.
-$(ESP)/kernel.elf: $(BUILD)/kernel.elf
+$(ESP)/kernel.elf: $(BUILD)/kernel.elf $(BUILD_FILES)
 	@mkdir -p $(@D)
 	$(OBJCOPY) --strip-debug $< $@
 

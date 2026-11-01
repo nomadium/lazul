@@ -32,6 +32,11 @@ LIBMRUBY    := $(MRUBY_BUILD)/lib/libmruby.a
 
 SMP ?= 4
 
+# The files that set the flags and source lists the kernel and the boot
+# files are built with: whatever is built from them depends on them too,
+# so that changing a flag rebuilds it. (mruby has its own build config.)
+BUILD_FILES := Makefile src/arch/$(ARCH)/arch.mk
+
 include src/arch/$(ARCH)/arch.mk
 
 CC     := $(CROSS)gcc
@@ -65,21 +70,22 @@ DEPS    := $(OBJS:.o=.d)
 all: $(BUILD)/kernel.elf $(BOOT_DEPS)
 
 
-$(BUILD)/kernel.elf: $(OBJS) $(LIBMRUBY) src/arch/$(ARCH)/kernel.ld
+$(BUILD)/kernel.elf: $(OBJS) $(LIBMRUBY) src/arch/$(ARCH)/kernel.ld \
+                     $(BUILD_FILES)
 	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LIBMRUBY) -lm
 
-$(BUILD)/kernel_rb.c: $(RUBY_SRCS) $(MRBC)
+$(BUILD)/kernel_rb.c: $(RUBY_SRCS) $(MRBC) $(BUILD_FILES)
 	@mkdir -p $(@D)
 	$(MRBC) -g -Bkernel_rb -o $@ $(RUBY_SRCS)
 
-$(BUILD)/%.o: src/%.c $(LIBMRUBY)
+$(BUILD)/%.o: src/%.c $(LIBMRUBY) $(BUILD_FILES)
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(BUILD)/kernel_rb.o: $(BUILD)/kernel_rb.c
+$(BUILD)/kernel_rb.o: $(BUILD)/kernel_rb.c $(BUILD_FILES)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(BUILD)/%.o: src/%.S
+$(BUILD)/%.o: src/%.S $(BUILD_FILES)
 	@mkdir -p $(@D)
 	$(CC) $(ARCH_FLAGS) -I src -g -MMD -MP -c -o $@ $<
 
