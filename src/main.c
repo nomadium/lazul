@@ -23,6 +23,7 @@
 #include <string.h>
 
 #include <mruby.h>
+#include <mruby/array.h>
 #include <mruby/error.h>
 #include <mruby/irep.h>
 #include <mruby/string.h>
@@ -144,11 +145,27 @@ kcall_body(mrb_state *mrb, void *ud)
 	    mrb_intern_cstr(mrb, c->name), c->argc, c->argv);
 }
 
-/* Body of report_exception(): inspect the exception, which may raise. */
+/*
+ * Body of report_exception(): the exception inspected, then its backtrace
+ * one frame per line. Either may raise.
+ */
 mrb_value
 inspect_body(mrb_state *mrb, void *ud)
 {
-	return mrb_inspect(mrb, *(mrb_value *)ud);
+	mrb_value bt, exc, s;
+	mrb_int i;
+
+	exc = *(mrb_value *)ud;
+	s = mrb_inspect(mrb, exc);
+	bt = mrb_funcall(mrb, exc, "backtrace", 0);
+	if (mrb_array_p(bt)) {
+		for (i = 0; i < RARRAY_LEN(bt); i++) {
+			mrb_str_cat_lit(mrb, s, "\n    from ");
+			mrb_str_cat_str(mrb, s,
+			    mrb_obj_as_string(mrb, RARRAY_PTR(bt)[i]));
+		}
+	}
+	return s;
 }
 
 /* Print an exception that escaped from Ruby code. */
