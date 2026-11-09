@@ -32,6 +32,7 @@ class UART
   LCR = 3  # line control
   MCR = 4  # modem control
   LSR = 5  # line status
+  SCR = 7  # scratch
 
   LSR_DATA_READY = 0x01
   LSR_THR_EMPTY = 0x20   # room for another byte
@@ -43,6 +44,15 @@ class UART
   def initialize(regs, irq)
     @regs = regs
     @irq = irq
+  end
+
+  # Whether a UART answers at all: the scratch register keeps what is
+  # written to it (where there is no device, reads give 0xff).
+  def present?
+    [0x5a, 0xa5].all? do |v|
+      write(SCR, v)
+      read(SCR) == v
+    end
   end
 
   def init
