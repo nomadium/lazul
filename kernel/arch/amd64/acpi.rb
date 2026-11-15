@@ -92,15 +92,21 @@ class ACPI
     info
   end
 
-  # FADT: the PM timer (a 3.579545 MHz counter, 24 or 32 bits wide) and
-  # the DSDT, the table with the machine's AML.
+  # FADT: the PM timer (a 3.579545 MHz counter, 24 or 32 bits wide), the
+  # PM1a control port (for S5 poweroff), the DSDT, the table with the
+  # machine's AML, and the reset register (ACPI 2.0 and later), as a
+  # Generic Address Structure and the value to write to it, or nil.
   def fadt
     t = self["FACP"] or return nil
     flags = t.u32(112)
+    reset = t.data.bytesize > 128 && flags & (1 << 10) != 0    # RESET_REG_SUP
     {
       pm_timer: t.u32(76),
       pm_timer_32bit: flags & (1 << 8) != 0,
-      dsdt: t.u32(40)
+      pm1a_control: t.u32(64),
+      dsdt: t.u32(40),
+      reset_reg: reset ? t.gas(116) : nil,
+      reset_value: reset ? t.u8(128) : nil
     }
   end
 
@@ -111,6 +117,27 @@ class ACPI
     return nil unless [0, 1, 0x12].include?(t.u8(36))  # 16550, 16450, 16550-compatible
     space, addr = t.gas(40)
     [space, addr, t.u8(53)]
+  end
+
+  # SLP_TYPa for S5 (soft off): what to write to the PM1a control port to
+  # power the machine off. It is the first element of the \_S5_ package in
+  # the DSDT, which is AML; instead of running AML, do what hobby kernels
+  # do: find the name and decode the package's first element.
+  def s5_sleep_type
+    f = fadt or return nil
+    len = @mem.read_bytes(f[:dsdt] + 4, 4).unpack1("V")
+    aml = @mem.read_bytes(f[:dsdt], len)
+    i = aml.index("_S5_") or return nil
+    pkg = i + 4
+    return nil unless aml.getbyte(pkg) == 0x12          # PackageOp
+    pkg += 1
+    pkg += ((aml.getbyte(pkg) >> 6) & 3) + 1            # PkgLength
+    pkg += 1                                            # NumElements
+    case aml.getbyte(pkg)
+    when 0x0a then aml.getbyte(pkg + 1)                 # BytePrefix n
+    when 0x01 then 1                                    # One
+    else 0                                              # Zero
+    end
   end
 
   private

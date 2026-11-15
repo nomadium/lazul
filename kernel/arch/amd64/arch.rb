@@ -4,8 +4,9 @@
 #
 # The kernel runs on a PC. There is no SBI here: the machine is described
 # by the boot info and the ACPI tables (Platform), device interrupts go
-# through the I/O APICs to a CPU's local APIC (apic.rb), and the clock is
-# the CPU's time stamp counter (TSC), timed against the ACPI PM timer.
+# through the I/O APICs to a CPU's local APIC (apic.rb), the clock is the
+# CPU's time stamp counter (TSC), timed against the ACPI PM timer, and
+# poweroff and reboot go through ACPI's power management registers.
 #
 # Hart ids are local APIC ids, the numbers the CPUs know themselves by.
 
@@ -23,6 +24,9 @@ end
 
 module Arch
   PM_TIMER_HZ = 3_579_545
+  SLP_EN = 1 << 13        # PM1 control: enter the sleep state SLP_TYP
+  RESET_CONTROL = 0xcf9   # PCI reset control register (an I/O port)
+  KBC_COMMAND = 0x64      # the keyboard controller's command port
 
   # Shell commands that only make sense here; Shell sends them to Arch.
   SHELL_COMMANDS = {
@@ -97,8 +101,32 @@ module Arch
     def time = CPU.tsc
     def timebase_hz = @timebase
 
-    def shutdown = raise(NotImplementedError, "no poweroff on amd64 yet")
-    def reboot = raise(NotImplementedError, "no reboot on amd64 yet")
+    # ACPI S5, "soft off": the sleep type for S5 and the enable bit,
+    # written to the PM1a control port.
+    def shutdown
+      fadt = @platform.fadt
+      slp_typ = @platform.acpi.s5_sleep_type
+      Port.out16(fadt[:pm1a_control], (slp_typ << 10) | SLP_EN) if fadt && slp_typ
+      raise "poweroff failed"
+    end
+
+    # The ACPI reset register; failing that, the traditional PC ways: a
+    # full reset through the reset control register (0xcf9), and a CPU
+    # reset through the keyboard controller.
+    def reboot
+      fadt = @platform.fadt
+      if fadt && fadt[:reset_reg]
+        space, addr = fadt[:reset_reg]
+        if space == 1
+          Port.out8(addr, fadt[:reset_value])
+        elsif space == 0
+          Memory[addr] = fadt[:reset_value]
+        end
+      end
+      Port.out8(RESET_CONTROL, 0x06)   # full reset (bit 3 clear), reset CPU
+      Port.out8(KBC_COMMAND, 0xfe)     # pulse the CPU reset line
+      raise "reboot failed"
+    end
 
     def cmd_acpi(sig)
       if sig.empty?
