@@ -4,7 +4,8 @@
 # Usage: test/console_test.rb [smp] (default: $SMP or 4)
 # "make test" passes the architecture in $ARCH and its QEMU command line in
 # $QEMU_CMD; without them, the riscv64 kernel is run. BOOT=uefi says that
-# command boots through U-Boot and the EFI loader (make test BOOT=uefi).
+# command boots through UEFI firmware (U-Boot on riscv64, OVMF on amd64)
+# and the EFI loader (make test BOOT=uefi).
 
 require "shellwords"
 require "timeout"
@@ -12,7 +13,7 @@ require "timeout"
 SMP = Integer(ARGV[0] || ENV.fetch("SMP", 4))
 ARCH = ENV.fetch("ARCH", "riscv64")
 UEFI = ENV["BOOT"] == "uefi"
-# Booting through U-Boot takes longer: it scans for devices first.
+# Booting through UEFI firmware takes longer: it scans for devices first.
 BOOT_TIMEOUT = UEFI ? 60 : 30
 # The shell prompt; always written after a newline, so a "=> " that ends a
 # partial read of a reply does not look like it.
@@ -100,10 +101,12 @@ begin
     t.check("banner: harts", boot.match?(/harts: #{harts}; timebase \d+ Hz \(TSC\)/))
     t.check("banner: console", boot.include?("console: COM1 at port 0x3f8, irq 4"))
     t.check("banner: interrupts", boot.include?("interrupts: I/O APIC at 0xfec00000"))
-    # The heap runs to the end of the free memory the kernel is in, the
-    # last range below the PCI devices on q35.
-    free_end = boot[/free memory: .*-(0x\h+) \(/, 1]
-    t.check("heap ends with the free memory", free_end && boot.match?(/kernel heap: 0x\h+-#{free_end}\r\n/))
+    # The heap runs from the end of the kernel to the end of the free
+    # memory there.
+    free = boot[/free memory: (.*) \(/, 1].to_s.scan(/(0x\h+)-(0x\h+)/).map { |r| r.map(&:hex) }
+    heap = boot[/kernel heap: (0x\h+-0x\h+)/, 1].to_s.split("-").map(&:hex)
+    t.check("heap ends with the free memory", heap.size == 2 &&
+      free.any? { |first, last| first <= heap[0] && heap[1] == last })
   else
     # What the kernel found in the device tree.
     t.check("banner: harts", boot.include?("harts: #{harts}; timebase 10000000 Hz"))

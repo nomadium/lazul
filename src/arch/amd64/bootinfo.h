@@ -5,8 +5,9 @@
  * heap and Ruby reads (kernel/arch/amd64/platform.rb), so the layout is
  * fixed: 64-bit fields, in this order.
  *
- * For a direct boot from QEMU, boot.c fills one in from the PVH start
- * info that the firmware passes (struct hvm_start_info below).
+ * Booted through UEFI, the EFI loader (loader/loader.c) passes one. For a
+ * direct boot from QEMU, boot.c fills one in from the PVH start info that
+ * the firmware passes (struct hvm_start_info below).
  */
 #ifndef LAZUL_BOOTINFO_H
 #define LAZUL_BOOTINFO_H
@@ -38,6 +39,8 @@ struct boot_info {
 	uint64_t	memory_map;	/* a struct boot_memory array */
 	uint64_t	memory_map_entries;
 	uint64_t	trampoline;	/* a free page below 1 MiB, for SMP */
+	uint64_t	efi_system_table;	/* 0 unless booted through UEFI */
+	uint64_t	efi_runtime_services;	/* still callable: ResetSystem */
 };
 
 /*

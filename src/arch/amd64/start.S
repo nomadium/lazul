@@ -1,6 +1,10 @@
 /*
  * Entry points of the kernel, and the boot CPU's stack.
  *
+ *   _start     The boot CPU, entered from lazul's EFI loader
+ *              (loader/loader.c) in long mode, on the firmware's identity
+ *              map, GDT and IDT, interrupts disabled.
+ *              rdi = the boot info (bootinfo.h).
  *   pvh_start  The boot CPU, entered from QEMU's direct kernel boot
  *              through the PVH boot protocol, which QEMU's firmware
  *              implements for ELF kernels: the CPU is in 32-bit protected
@@ -13,16 +17,17 @@
  *              rdi = hart id, rsp = the hart's area from
  *              Kern.alloc_hart_area (src/hal.c), the top of its stack.
  *
- * A PC starts every CPU in 16-bit real mode, as an 8086 would; the
- * firmware has already brought this one to 32-bit protected mode. The
- * kernel runs in 64-bit long mode, which takes four steps: page tables
- * (long mode always translates addresses), CR4.PAE (their 64-bit entry
- * format), EFER.LME (asking for long mode), and CR0.PG (turning paging
- * on, which activates long mode). The CPU then still runs 32-bit code,
- * until a far jump loads a 64-bit code segment.
+ * A PC starts every CPU in 16-bit real mode, as an 8086 would. UEFI
+ * firmware brings the boot CPU all the way to 64-bit long mode, but for
+ * PVH it is only in 32-bit protected mode, and pvh_start takes it the rest
+ * of the way. Long mode takes four steps: page tables (long mode always
+ * translates addresses), CR4.PAE (their 64-bit entry format), EFER.LME
+ * (asking for long mode), and CR0.PG (turning paging on, which activates
+ * long mode). The CPU then still runs 32-bit code, until a far jump loads
+ * a 64-bit code segment.
  *
  * The page tables map the low 4 GiB to themselves (an identity map), so
- * the kernel keeps running at the physical addresses it was linked for.
+ * the kernel keeps running at the physical addresses it was loaded at.
  *
  * Hart ids are local APIC ids, the CPUs' own numbers (see arch.rb).
  */
@@ -43,6 +48,27 @@
 	.quad	pvh_start		/* the descriptor: the entry point */
 
 	.section .text.entry, "ax"
+	.code64
+	.globl	_start
+_start:
+	cli
+	cld				/* string instructions count up */
+	movq	%rdi, %r12		/* keep the boot info; rdi is used below */
+
+	/*
+	 * Clear .bss: C expects its zero-initialized variables to be zero.
+	 * Only the boot CPU runs this, before any other CPU is up.
+	 */
+	leaq	__bss_start(%rip), %rdi
+	leaq	__bss_end(%rip), %rcx
+	subq	%rdi, %rcx
+	xorl	%eax, %eax
+	rep stosb
+
+	leaq	boot_stack_top(%rip), %rsp
+	movq	%r12, %rsi		/* boot_main's boot_arg */
+	jmp	enter_kernel
+
 	.code32
 	.globl	pvh_start
 pvh_start:
@@ -137,6 +163,8 @@ pvh_long:
 	call	pvh_boot_info
 	movq	%rax, %rsi		/* boot_main's boot_arg */
 
+	/* Both ways in end here: rsp on the boot stack, rsi = boot info. */
+enter_kernel:
 	call	apic_id
 	movl	%eax, %edi		/* boot_main's hart id */
 	call	boot_main

@@ -7,7 +7,8 @@
 # through the I/O APICs to a CPU's local APIC (apic.rb), which also sends
 # IPIs and starts the other CPUs (INIT-SIPI-SIPI), the clock is the CPU's
 # time stamp counter (TSC), timed against the ACPI PM timer, and poweroff
-# and reboot go through ACPI's power management registers.
+# and reboot go through the EFI runtime services when the kernel was
+# booted through UEFI, or ACPI's power management registers.
 #
 # Hart ids are local APIC ids, the numbers the CPUs know themselves by.
 
@@ -25,6 +26,8 @@ end
 
 module Arch
   PM_TIMER_HZ = 3_579_545
+  EFI_RESET_COLD = 0
+  EFI_RESET_SHUTDOWN = 2
   SLP_EN = 1 << 13        # PM1 control: enter the sleep state SLP_TYP
   RESET_CONTROL = 0xcf9   # PCI reset control register (an I/O port)
   KBC_COMMAND = 0x64      # the keyboard controller's command port
@@ -49,7 +52,7 @@ module Arch
 
     # The firmware, for the boot banner. QEMU's direct kernel boot does not
     # say which one ran.
-    def firmware = "PVH boot"
+    def firmware = (@platform.efi_system_table == 0) ? "PVH boot" : "UEFI #{firmware_vendor}"
 
     # The machine, for the boot banner: one line per item.
     def describe
@@ -128,19 +131,21 @@ module Arch
     def time = CPU.tsc
     def timebase_hz = @timebase
 
-    # ACPI S5, "soft off": the sleep type for S5 and the enable bit,
-    # written to the PM1a control port.
+    # EFI ResetSystem; failing that, ACPI S5, "soft off": the sleep type
+    # for S5 and the enable bit, written to the PM1a control port.
     def shutdown
+      EFI.reset_system(@platform.runtime_services, EFI_RESET_SHUTDOWN)
       fadt = @platform.fadt
       slp_typ = @platform.acpi.s5_sleep_type
       Port.out16(fadt[:pm1a_control], (slp_typ << 10) | SLP_EN) if fadt && slp_typ
       raise "poweroff failed"
     end
 
-    # The ACPI reset register; failing that, the traditional PC ways: a
-    # full reset through the reset control register (0xcf9), and a CPU
-    # reset through the keyboard controller.
+    # EFI ResetSystem; failing that, the ACPI reset register, then the
+    # traditional PC ways: a full reset through the reset control register
+    # (0xcf9), and a CPU reset through the keyboard controller.
     def reboot
+      EFI.reset_system(@platform.runtime_services, EFI_RESET_COLD)
       fadt = @platform.fadt
       if fadt && fadt[:reset_reg]
         space, addr = fadt[:reset_reg]
@@ -189,6 +194,20 @@ module Arch
         return false if CPU.tsc > t
       end
       true
+    end
+
+    # The firmware vendor string (UTF-16) from the EFI system table, which
+    # lives in runtime memory and so is still there.
+    def firmware_vendor
+      ptr = Memory.read64(@platform.efi_system_table + 24)
+      return "" if ptr == 0
+      s = +""
+      64.times do |i|
+        c = Memory.read16(ptr + 2 * i)
+        break if c == 0
+        s << ((c < 0x80) ? c.chr : "?")
+      end
+      s
     end
 
     def hexdump(addr, data)

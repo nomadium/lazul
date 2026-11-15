@@ -12,6 +12,7 @@
  *       starts hartid on area (from Kern.alloc_hart_area), after copying
  *       the startup trampoline to page (below 1 MiB)
  *   SMP.ready?(hartid) -> whether that CPU has left the trampoline
+ *   EFI.reset_system(runtime_services, type)  (type 2 is shutdown)
  *   Kern::IRQ_VECTOR_BASE, Kern::IPI_VECTOR, Kern::SPURIOUS_VECTOR
  */
 #include <stdint.h>
@@ -22,6 +23,12 @@
 
 #include "kernel.h"
 #include "amd64.h"
+
+/* The EFI runtime services table: header (24 bytes), then 10 functions. */
+#define	EFI_RT_RESET_SYSTEM	(24 + 10 * 8)
+
+typedef void (__attribute__((__ms_abi__)) *efi_reset_system_fn)(int,
+    uint64_t, uint64_t, void *);
 
 /* trampoline.S, start.S, arch.c */
 extern char ap_trampoline[], ap_trampoline_end[];
@@ -171,11 +178,32 @@ smp_ready_p(mrb_state *mrb, mrb_value self)
 	    __ATOMIC_ACQUIRE) == hartid);
 }
 
-/* Define the Port, CPU, SMP and Kern additions described above. */
+/*
+ * EFI.reset_system(runtime_services, type): call ResetSystem, one of the
+ * runtime services, which the firmware keeps after boot services exit.
+ * The kernel runs on an identity map and never called
+ * SetVirtualAddressMap, so the firmware's physical addresses still work.
+ * Returns only if it fails.
+ */
+mrb_value
+efi_reset_system(mrb_state *mrb, mrb_value self)
+{
+	efi_reset_system_fn reset;
+	mrb_int rt, type;
+
+	mrb_get_args(mrb, "ii", &rt, &type);
+	if (rt == 0)
+		return mrb_nil_value();
+	reset = *(efi_reset_system_fn *)(rt + EFI_RT_RESET_SYSTEM);
+	reset(type, 0, 0, NULL);
+	return mrb_nil_value();
+}
+
+/* Define the Port, CPU, SMP, EFI and Kern additions described above. */
 void
 arch_hal_init(mrb_state *mrb)
 {
-	struct RClass *cpu, *kern, *port, *smp;
+	struct RClass *cpu, *efi, *kern, *port, *smp;
 
 	port = mrb_define_module(mrb, "Port");
 #define	DEF_PORT(bits) do {						\
@@ -205,6 +233,10 @@ arch_hal_init(mrb_state *mrb)
 	    MRB_ARGS_REQ(3));
 	mrb_define_module_function(mrb, smp, "ready?", smp_ready_p,
 	    MRB_ARGS_REQ(1));
+
+	efi = mrb_define_module(mrb, "EFI");
+	mrb_define_module_function(mrb, efi, "reset_system", efi_reset_system,
+	    MRB_ARGS_REQ(2));
 
 	kern = mrb_define_module(mrb, "Kern");
 	mrb_define_const(mrb, kern, "IRQ_VECTOR_BASE",

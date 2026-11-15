@@ -11,12 +11,13 @@ class Platform
   UARTInfo = Struct.new(:space, :base, :irq, :name)   # space: :port or :mmio
 
   attr_reader :boot_info, :acpi, :madt, :fadt, :memory_map, :memory, :uart,
-    :trampoline, :harts
+    :trampoline, :harts, :efi_system_table, :runtime_services
 
   def initialize(boot_info, mem = Memory)
     @mem = mem
     @boot_info = boot_info
-    magic, rsdp, map, entries, @trampoline = mem.read_bytes(boot_info, 40).unpack("Q<5")
+    magic, rsdp, map, entries, @trampoline, @efi_system_table, @runtime_services =
+      mem.read_bytes(boot_info, 56).unpack("Q<7")
     raise "bad boot info (magic 0x#{magic.to_s(16)})" unless magic == BOOT_INFO_MAGIC
     @memory_map = read_memory_map(map, entries)
     @memory = free_memory

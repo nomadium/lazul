@@ -10,7 +10,7 @@
  *               |                    |  ROMs and the BIOS (0xf0000): not
  *               |                    |  for the kernel
  *   0x00100000  +--------------------+  ORIGIN(ram), 1 MiB
- *               | .text              |  code; pvh_start comes first
+ *               | .text              |  code; the entry points first
  *               | .rodata            |  constants, the Ruby bytecode
  *               +--------------------+  (first segment: read + execute)
  *               | .data              |  initialised variables
@@ -24,20 +24,23 @@
  *               |                    |  the boot info's memory map
  *               +--------------------+
  *
- * The kernel runs at the address it was linked for: the paging set up at
- * entry maps every address to itself (an identity map). QEMU's direct
- * kernel boot loads each segment at its physical address, so 1 MiB, the
- * traditional lowest address for a PC kernel, must be free RAM, as it is
- * on every PC.
+ * The paging set up at entry maps every address to itself (an identity
+ * map), so the kernel runs at the physical addresses it is loaded at.
+ * QEMU's direct kernel boot loads each segment at its link address, so
+ * 1 MiB, the traditional lowest address for a PC kernel, must be free RAM,
+ * as it is on every PC. The EFI loader places the kernel wherever the
+ * firmware has free memory instead, and relocates it there (see
+ * loader/loader.c and --emit-relocs in arch.mk).
  */
 OUTPUT_FORMAT(elf64-x86-64)
 OUTPUT_ARCH(i386:x86-64)
 
 /*
- * The ELF entry point. QEMU's direct boot does not use it: it enters
- * the kernel in 32-bit mode at the address in the PVH note (start.S).
+ * The ELF entry point, where the EFI loader jumps. QEMU's direct boot does
+ * not use it: it enters the kernel in 32-bit mode at the address in the
+ * PVH note (start.S).
  */
-ENTRY(pvh_start)
+ENTRY(_start)
 
 /*
  * LENGTH: room for the kernel image, a generous cap as in riscv64's
