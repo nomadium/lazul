@@ -3,8 +3,9 @@
 # kernel/arch/riscv64/arch.rb.
 #
 # The kernel runs on a PC. There is no SBI here: the machine is described
-# by the boot info and the ACPI tables (Platform), and the clock is the
-# CPU's time stamp counter (TSC), timed against the ACPI PM timer.
+# by the boot info and the ACPI tables (Platform), device interrupts go
+# through the I/O APICs to a CPU's local APIC (apic.rb), and the clock is
+# the CPU's time stamp counter (TSC), timed against the ACPI PM timer.
 #
 # Hart ids are local APIC ids, the numbers the CPUs know themselves by.
 
@@ -24,7 +25,9 @@ module Arch
   PM_TIMER_HZ = 3_579_545
 
   # Shell commands that only make sense here; Shell sends them to Arch.
-  SHELL_COMMANDS = {}.freeze
+  SHELL_COMMANDS = {
+    "acpi" => "acpi [SIG] - ACPI tables: the list, or one table's bytes"
+  }.freeze
 
   class << self
     # What the boot info and the ACPI tables say about the machine.
@@ -35,6 +38,7 @@ module Arch
     # how fast the TSC runs.
     def init(boot_info)
       @platform = Platform.new(boot_info)
+      @lapic = LAPIC.new
       @timebase = tsc_frequency
     end
 
@@ -54,7 +58,7 @@ module Arch
         "kernel heap: #{hex(Kern::HEAP_START)}-#{hex(Kern::HEAP_END)}",
         "harts: #{harts.join(", ")}; timebase #{@timebase} Hz (TSC)",
         "console: #{u.name} at #{(u.space == :port) ? "port" : "address"} #{hex(u.base)}, irq #{u.irq}",
-        "interrupts: none supported"
+        "interrupts: #{ioapics}; local APIC #{@lapic.x2apic? ? "in x2APIC mode" : "at #{hex(@lapic.base)}"}"
       ]
     end
 
@@ -71,15 +75,23 @@ module Arch
       uart
     end
 
-    # No interrupt controller yet: Kern says that console input is off.
-    def interrupt_controller = nil
-    def enable_interrupts(_hartid, _irqc, _irq) = nil
+    # The interrupt controller: an object with register(irq, &handler) and
+    # service(hartid, pending), which calls the handlers of the interrupts
+    # pending on this CPU (pending is what Arch.pending reported).
+    def interrupt_controller = IRQRouter.new(@platform, @lapic)
+
+    # Enable what wakes this CPU from its idle wait: device interrupts
+    # arrive through its local APIC. irqc routes them to the CPU that
+    # registers them, the boot CPU.
+    def enable_interrupts(_hartid, _irqc, _irq) = @lapic.enable
 
     def start_hart(_id) = false
 
-    # What woke this CPU: [ipi?, device interrupt pending?]. Nothing can,
-    # yet.
-    def pending = [false, nil]
+    # What woke this CPU: [ipi?, the pending vectors as bits, or nil].
+    def pending
+      bits = CPU.take_pending
+      [false, (bits == 0) ? nil : bits]
+    end
 
     # The clock: a tick count, and ticks per second.
     def time = CPU.tsc
@@ -88,11 +100,35 @@ module Arch
     def shutdown = raise(NotImplementedError, "no poweroff on amd64 yet")
     def reboot = raise(NotImplementedError, "no reboot on amd64 yet")
 
+    def cmd_acpi(sig)
+      if sig.empty?
+        @platform.acpi.tables.each do |t|
+          puts "  #{t.signature}  #{hex(t.addr)}  #{t.data.bytesize.to_s.rjust(6)} bytes  rev #{t.revision}  #{t.oem_id} #{t.oem_table_id}"
+        end
+        return
+      end
+      t = @platform.acpi[sig] or return puts("no such table: #{sig}")
+      hexdump(t.addr, t.data)
+    end
+
     private
 
     def hex(n) = "0x%x" % n
 
     def ranges(list) = list.map { |base, size| "#{hex(base)}-#{hex(base + size)}" }.join(", ")
+
+    def ioapics
+      @platform.madt.ioapics.map { |io| "I/O APIC at #{hex(io.address)}" }.join(", ")
+    end
+
+    # 16 bytes a line: address, bytes in hex, and the printable ones.
+    def hexdump(addr, data)
+      (data.bytesize + 15).div(16).times do |i|
+        bytes = data.byteslice(16 * i, 16).bytes
+        text = bytes.map { |b| (b >= 0x20 && b < 0x7f) ? b.chr : "." }.join
+        puts "  %08x  %-47s  %s" % [addr + 16 * i, bytes.map { |b| "%02x" % b }.join(" "), text]
+      end
+    end
 
     # TSC ticks per second: from CPUID leaf 0x15 when the CPU reports it,
     # else counted over 50 ms of the ACPI PM timer, else from CPUID leaf

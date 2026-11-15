@@ -10,7 +10,7 @@ class Platform
 
   UARTInfo = Struct.new(:space, :base, :irq, :name)   # space: :port or :mmio
 
-  attr_reader :boot_info, :acpi, :fadt, :memory_map, :memory, :uart
+  attr_reader :boot_info, :acpi, :madt, :fadt, :memory_map, :memory, :uart
 
   def initialize(boot_info, mem = Memory)
     @mem = mem
@@ -20,6 +20,7 @@ class Platform
     @memory_map = read_memory_map(map, entries)
     @memory = free_memory
     @acpi = ACPI.new(rsdp, mem)
+    @madt = @acpi.madt or raise "no MADT in the ACPI tables"
     @fadt = @acpi.fadt
     @uart = find_uart
   end
@@ -29,6 +30,12 @@ class Platform
   def model
     t = @acpi["FACP"] || @acpi.tables.first
     [@acpi.oem_id, t&.oem_table_id].compact.join(" ")
+  end
+
+  # The ISA IRQ's global system interrupt number and polarity/trigger.
+  def isa_irq(irq)
+    o = @madt.overrides.find { |x| x.source == irq }
+    o ? [o.gsi, o.active_low, o.level] : [irq, false, false]
   end
 
   private

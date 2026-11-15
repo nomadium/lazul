@@ -3,6 +3,7 @@
 # passes on. Only the static tables are read, not the AML byte code that
 # describes most devices (which would need an interpreter):
 #
+#   APIC  the MADT: the CPUs and the interrupt controllers
 #   FACP  the FADT, "fixed" hardware: the PM timer, power management ports
 #   SPCR  the serial console, when the firmware describes one
 #
@@ -27,6 +28,11 @@ class ACPI
     def gas(off) = [u8(off), u64(off + 4)]
   end
 
+  LocalAPIC = Struct.new(:apic_id, :uid, :enabled)
+  IOAPICInfo = Struct.new(:id, :address, :gsi_base)
+  Override = Struct.new(:source, :gsi, :active_low, :level)    # ISA IRQ -> GSI
+  MADTInfo = Struct.new(:lapic_address, :pic_present, :cpus, :ioapics, :overrides)
+
   attr_reader :rsdp, :revision, :oem_id, :tables
 
   # The RSDP: "RSD PTR ", a checksum, the OEM id, the revision, then the
@@ -50,6 +56,41 @@ class ACPI
   end
 
   def [](signature) = @tables.find { |t| t.signature == signature }
+
+  # MADT: after the header, the local APIC address and flags, then a list
+  # of variable-length entries, each starting with its type and length.
+  # A CPU is a local APIC entry; device interrupts are numbered globally
+  # (GSIs) across the I/O APICs, each handling a range from its base; the
+  # overrides say where the ISA IRQs of the original PC ended up (on QEMU,
+  # IRQ 0, the timer, is GSI 2) and their polarity and trigger mode.
+  def madt
+    t = self["APIC"] or return nil
+    info = MADTInfo.new(t.u32(36), t.u32(40) & 1 != 0, [], [], [])
+    off = 44
+    while off + 2 <= t.data.bytesize
+      type = t.u8(off)
+      len = t.u8(off + 1)
+      break if len < 2
+      case type
+      when 0 # processor local APIC
+        flags = t.u32(off + 4)
+        info.cpus << LocalAPIC.new(t.u8(off + 3), t.u8(off + 2), flags & 1 != 0)
+      when 1 # I/O APIC
+        info.ioapics << IOAPICInfo.new(t.u8(off + 2), t.u32(off + 4), t.u32(off + 8))
+      when 2 # interrupt source override
+        flags = t.u16(off + 8)
+        info.overrides << Override.new(t.u8(off + 3), t.u32(off + 4),
+          flags & 3 == 3, (flags >> 2) & 3 == 3)
+      when 5 # local APIC address override
+        info.lapic_address = t.u64(off + 4)
+      when 9 # processor local x2APIC
+        flags = t.u32(off + 8)
+        info.cpus << LocalAPIC.new(t.u32(off + 4), t.u32(off + 12), flags & 1 != 0)
+      end
+      off += len
+    end
+    info
+  end
 
   # FADT: the PM timer (a 3.579545 MHz counter, 24 or 32 bits wide) and
   # the DSDT, the table with the machine's AML.

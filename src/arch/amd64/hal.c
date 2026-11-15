@@ -6,6 +6,9 @@
  *   CPU.rdmsr(msr) -> Integer, CPU.wrmsr(msr, v)
  *   CPU.cpuid(leaf, sub = 0) -> [eax, ebx, ecx, edx]
  *   CPU.tsc -> the time stamp counter
+ *   CPU.take_pending -> the vectors recorded since the last call (irq.c):
+ *       bit n is vector IRQ_VECTOR_BASE + n
+ *   Kern::IRQ_VECTOR_BASE, Kern::SPURIOUS_VECTOR
  */
 #include <stdint.h>
 
@@ -101,11 +104,21 @@ cpu_tsc(mrb_state *mrb, mrb_value self)
 	return mrb_int_value(mrb, (mrb_int)(((uint64_t)hi << 32) | lo));
 }
 
-/* Define the Port and CPU additions described above. */
+/* CPU.take_pending: this CPU's recorded vectors, which it then clears. */
+mrb_value
+cpu_take_pending(mrb_state *mrb, mrb_value self)
+{
+	uint64_t bits;
+
+	bits = __atomic_exchange_n(&irq_pending, 0, __ATOMIC_ACQ_REL);
+	return mrb_int_value(mrb, (mrb_int)bits);
+}
+
+/* Define the Port, CPU and Kern additions described above. */
 void
 arch_hal_init(mrb_state *mrb)
 {
-	struct RClass *cpu, *port;
+	struct RClass *cpu, *kern, *port;
 
 	port = mrb_define_module(mrb, "Port");
 #define	DEF_PORT(bits) do {						\
@@ -127,4 +140,12 @@ arch_hal_init(mrb_state *mrb)
 	mrb_define_module_function(mrb, cpu, "cpuid", cpu_cpuid,
 	    MRB_ARGS_ARG(1, 1));
 	mrb_define_module_function(mrb, cpu, "tsc", cpu_tsc, MRB_ARGS_NONE());
+	mrb_define_module_function(mrb, cpu, "take_pending", cpu_take_pending,
+	    MRB_ARGS_NONE());
+
+	kern = mrb_define_module(mrb, "Kern");
+	mrb_define_const(mrb, kern, "IRQ_VECTOR_BASE",
+	    mrb_fixnum_value(IRQ_VECTOR_BASE));
+	mrb_define_const(mrb, kern, "SPURIOUS_VECTOR",
+	    mrb_fixnum_value(SPURIOUS_VECTOR));
 }

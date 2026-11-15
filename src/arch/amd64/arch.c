@@ -137,16 +137,26 @@ setup_idt(void)
  * which in protected and long mode are CPU exceptions (8 is a double
  * fault): the first interrupt would look like one. Masking every line
  * stops them for good; the APICs take over.
+ *
+ * The local APIC's mode (xAPIC or x2APIC, as the firmware left it) and
+ * address are noted for the interrupt handler, which must tell it when
+ * an interrupt is done.
  */
 void
 arch_early_init(uintptr_t boot_arg)
 {
+	uint64_t apic;
+
 	outb(PIC1_DATA, 0xff);
 	outb(PIC2_DATA, 0xff);
 
 	setup_paging();
 	setup_idt();
 	__asm__ volatile("mov %0, %%cr3" :: "r"(kernel_pml4) : "memory");
+
+	apic = rdmsr(MSR_APIC_BASE);
+	x2apic_mode = (apic & APIC_BASE_X2APIC) != 0;
+	lapic_mmio = apic & ~0xfffUL;	/* the flags are in the low 12 bits */
 
 	heap_limit = (char *)(boot_free_ram_end(
 	    (const struct boot_info *)boot_arg,

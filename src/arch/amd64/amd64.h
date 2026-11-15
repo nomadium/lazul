@@ -26,7 +26,19 @@
 #define	SEL_CODE	0x08
 #define	SEL_DATA	0x10
 
+/*
+ * Interrupt vectors. 0-31 are CPU exceptions. Ruby routes device
+ * interrupts (through the I/O APIC) to IRQ_VECTOR_BASE + n, and vectors
+ * IRQ_VECTOR_BASE to IRQ_VECTOR_BASE + 63 are reported to it as the bits of
+ * a pending word (CPU.take_pending in hal.c).
+ */
+#define	IRQ_VECTOR_BASE	0x20
+#define	SPURIOUS_VECTOR	0xff
+
 /* Model specific registers. */
+#define	MSR_APIC_BASE	0x1b		/* where the local APIC is, its mode */
+#define	APIC_BASE_X2APIC	(1 << 10)	/* registers are MSRs */
+#define	MSR_X2APIC_EOI	0x80b		/* end of interrupt, in x2APIC mode */
 #define	MSR_EFER	0xc0000080	/* extended features */
 #define	EFER_LME	(1 << 8)	/* long mode enable */
 #define	MSR_FS_BASE	0xc0000100	/* the FS base: the thread pointer */
@@ -71,6 +83,11 @@ outb(uint16_t port, uint8_t v)
 }
 
 struct boot_info;
+
+/* irq.c */
+extern __thread uint64_t irq_pending;
+extern int x2apic_mode;
+extern uintptr_t lapic_mmio;
 
 /* boot.c */
 uintptr_t	boot_free_ram_end(const struct boot_info *, uintptr_t);
