@@ -91,10 +91,15 @@ module Arch
 
     def start_hart(_id) = false
 
-    # What woke this CPU: [ipi?, the pending vectors as bits, or nil].
+    # The hart id is the APIC id.
+    def send_ipi(id) = @lapic.send_ipi(id, Kern::IPI_VECTOR)
+
+    # What woke this CPU: [ipi?, the other pending vectors as bits, or nil].
     def pending
       bits = CPU.take_pending
-      [false, (bits == 0) ? nil : bits]
+      ipi_bit = 1 << (Kern::IPI_VECTOR - Kern::IRQ_VECTOR_BASE)
+      irqs = bits & ~ipi_bit
+      [bits & ipi_bit != 0, (irqs == 0) ? nil : irqs]
     end
 
     # The clock: a tick count, and ticks per second.

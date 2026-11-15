@@ -8,7 +8,7 @@
  *   CPU.tsc -> the time stamp counter
  *   CPU.take_pending -> the vectors recorded since the last call (irq.c):
  *       bit n is vector IRQ_VECTOR_BASE + n
- *   Kern::IRQ_VECTOR_BASE, Kern::SPURIOUS_VECTOR
+ *   Kern::IRQ_VECTOR_BASE, Kern::IPI_VECTOR, Kern::SPURIOUS_VECTOR
  */
 #include <stdint.h>
 
@@ -146,6 +146,7 @@ arch_hal_init(mrb_state *mrb)
 	kern = mrb_define_module(mrb, "Kern");
 	mrb_define_const(mrb, kern, "IRQ_VECTOR_BASE",
 	    mrb_fixnum_value(IRQ_VECTOR_BASE));
+	mrb_define_const(mrb, kern, "IPI_VECTOR", mrb_fixnum_value(IPI_VECTOR));
 	mrb_define_const(mrb, kern, "SPURIOUS_VECTOR",
 	    mrb_fixnum_value(SPURIOUS_VECTOR));
 }

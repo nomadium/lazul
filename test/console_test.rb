@@ -17,9 +17,12 @@ BOOT_TIMEOUT = UEFI ? 60 : 30
 # The shell prompt; always written after a newline, so a "=> " that ends a
 # partial read of a reply does not look like it.
 PROMPT = "\r\n> "
-KERNEL = File.expand_path("../build/riscv64/kernel.elf", __dir__)
+KERNEL = File.expand_path("../build/#{ARCH}/kernel.elf", __dir__)
 QEMU = if ENV["QEMU_CMD"]
   Shellwords.split(ENV["QEMU_CMD"])
+elsif ARCH == "amd64"
+  %W[qemu-system-x86_64 -machine q35 -smp #{SMP} -m 512M -nographic -nic none
+    -kernel #{KERNEL}]
 else
   %W[qemu-system-riscv64 -machine virt -smp #{SMP} -m 128M -nographic
     -bios default -kernel #{KERNEL}]
@@ -91,14 +94,26 @@ begin
     t.check("kernel relocated", linked && loaded != linked && boot.include?("relocated 0x"))
   end
   puts boot if ENV["VERBOSE"]
-  # What the kernel found in the device tree.
-  t.check("banner: harts", boot.include?("harts: #{(0...SMP).to_a.join(", ")}; timebase 10000000 Hz"))
-  t.check("banner: console", boot.include?("console: /soc/serial@10000000 at 0x10000000, irq 10"))
-  t.check("banner: plic", boot.include?("interrupts: PLIC at 0xc000000"))
-  # The device tree sits at the top of RAM (put there by QEMU, or U-Boot's
-  # copy), so the heap ends there.
-  dtb = boot[/machine: .*, device tree at (0x\h+)/, 1]
-  t.check("heap ends at the device tree", dtb && boot.include?("-#{dtb}\r\n"))
+  harts = (0...SMP).to_a.join(", ")
+  if ARCH == "amd64"
+    # What the kernel found in the boot info and the ACPI tables.
+    t.check("banner: harts", boot.match?(/harts: #{harts}; timebase \d+ Hz \(TSC\)/))
+    t.check("banner: console", boot.include?("console: COM1 at port 0x3f8, irq 4"))
+    t.check("banner: interrupts", boot.include?("interrupts: I/O APIC at 0xfec00000"))
+    # The heap runs to the end of the free memory the kernel is in, the
+    # last range below the PCI devices on q35.
+    free_end = boot[/free memory: .*-(0x\h+) \(/, 1]
+    t.check("heap ends with the free memory", free_end && boot.match?(/kernel heap: 0x\h+-#{free_end}\r\n/))
+  else
+    # What the kernel found in the device tree.
+    t.check("banner: harts", boot.include?("harts: #{harts}; timebase 10000000 Hz"))
+    t.check("banner: console", boot.include?("console: /soc/serial@10000000 at 0x10000000, irq 10"))
+    t.check("banner: plic", boot.include?("interrupts: PLIC at 0xc000000"))
+    # The device tree sits at the top of RAM (put there by QEMU, or U-Boot's
+    # copy), so the heap ends there.
+    dtb = boot[/machine: .*, device tree at (0x\h+)/, 1]
+    t.check("heap ends at the device tree", dtb && boot.include?("-#{dtb}\r\n"))
+  end
   boot_hart = boot[/Ruby is running on hart (\d+)/, 1].to_i  # OpenSBI picks it at random
   (0...SMP).each { |i| t.check("hart #{i} up", i == boot_hart || boot.include?("hart #{i} online")) }
 
@@ -109,10 +124,17 @@ begin
   t.command("raise 'boom'", "RuntimeError: boom")
   t.command("0xd00dfeed", "=> 3490578157")   # wider than 32 bits
   t.command("harts", "hart #{SMP - 1}: online")
-  t.command("Memory.read32(Kern::SECONDARY_ENTRY) != 0", "=> true")
-  t.command("dt", "    cpu@#{SMP - 1}\r\n")
-  t.command("dt /cpus", "timebase-frequency = <0x989680>;")
-  t.command("dt /soc/serial", '"ns16550a"')
+  if ARCH == "amd64"
+    t.command("acpi", "APIC  0x")
+    t.command("acpi APIC", "APIC")
+    t.command("Arch.platform.madt.cpus.size", "=> #{SMP}")
+    t.command("Port.in8(0x3f8 + 5) & 0x20", "=> 32")   # COM1 LSR: transmitter empty
+  else
+    t.command("Memory.read32(Kern::SECONDARY_ENTRY) != 0", "=> true")
+    t.command("dt", "    cpu@#{SMP - 1}\r\n")
+    t.command("dt /cpus", "timebase-frequency = <0x989680>;")
+    t.command("dt /soc/serial", '"ns16550a"')
+  end
 
   # Line editing: backspace removes the typo before the line is submitted.
   t.command("echo typx\x7fo", "typo\r\n")
@@ -180,9 +202,12 @@ io = IO.popen(QEMU, "r+", err: [:child, :out])
 pt = ConsoleTest.new(io)
 begin
   pt.expect(/#{SMP} hart\(s\) online; type 'help'#{PROMPT}\z/o, timeout: BOOT_TIMEOUT)
-  # Load from address 0, where QEMU's virt machine has nothing: an access
-  # fault, which the kernel does not handle. On another hart if there is one.
-  pt.write((SMP > 1) ? "on #{SMP - 1} Memory.read32(0)\r" : "Memory.read32(0)\r")
+  # A load the kernel does not handle, on another hart if there is one:
+  # from address 0, where QEMU's virt machine has nothing (an access
+  # fault), or on amd64 from 4 GiB, past what the page tables map (a page
+  # fault).
+  fault = (ARCH == "amd64") ? "Memory.read32(1 << 32)" : "Memory.read32(0)"
+  pt.write((SMP > 1) ? "on #{SMP - 1} #{fault}\r" : "#{fault}\r")
   pt.expect(/panic: .*\n/)
   pt.write("1 + 1\r")   # wakes every hart: the UART interrupt goes to all
   before = cpu_seconds(io.pid)
@@ -202,19 +227,26 @@ ensure
 end
 
 # A kernel that cannot boot says why and panics. QEMU's sifive_u machine
-# has a UART the kernel has no driver for (sifive,uart0), so Kern.boot
-# raises there: the report must show the exception with its backtrace,
-# files and lines included (mrbc -g), and end in a panic. The machine and
-# its firmware are the same whatever BOOT is, so direct boots only.
+# has a UART the kernel has no driver for (sifive,uart0), and its microvm
+# machine for amd64, without ACPI, no ACPI tables, so Kern.boot raises
+# there: the report must show the exception with its backtrace, files and
+# lines included (mrbc -g), and end in a panic. The machine and its
+# firmware are the same whatever BOOT is, so direct boots only.
 ft = nil
 unless UEFI
-  io = IO.popen(%W[qemu-system-riscv64 -machine sifive_u -smp 2 -nographic
-    -bios default -kernel #{KERNEL}], "r+", err: [:child, :out])
+  failing, error = if ARCH == "amd64"
+    [%W[qemu-system-x86_64 -machine microvm,acpi=off -smp 2 -m 256M -nographic
+      -kernel #{KERNEL}], "no ACPI root pointer"]
+  else
+    [%W[qemu-system-riscv64 -machine sifive_u -smp 2 -nographic -bios default
+      -kernel #{KERNEL}], "no supported console UART"]
+  end
+  io = IO.popen(failing, "r+", err: [:child, :out])
   ft = ConsoleTest.new(io)
   begin
     out = ft.expect(/panic: .*\n/, timeout: BOOT_TIMEOUT)
     ft.check("failed boot: exception reported",
-      out.include?("unhandled Ruby exception: #<RuntimeError: no supported console UART"))
+      out.include?("unhandled Ruby exception: #<RuntimeError: #{error}"))
     ft.check("failed boot: backtrace with files and lines", out.match?(%r{\n +from kernel/\S+\.rb:\d+}))
     ft.check("failed boot: panic", out.include?("panic: Kern.boot failed"))
   rescue => e
@@ -230,6 +262,6 @@ unless UEFI
 end
 
 failures = t.failures + pt.failures + (ft ? ft.failures : 0)
-mode = "smp=#{SMP}#{", boot=uefi" if UEFI}"
+mode = "#{ARCH}, smp=#{SMP}#{", boot=uefi" if UEFI}"
 puts failures.zero? ? "all tests passed (#{mode})" : "#{failures} failure(s) (#{mode})"
 exit(failures.zero? ? 0 : 1)

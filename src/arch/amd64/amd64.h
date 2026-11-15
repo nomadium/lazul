@@ -33,6 +33,7 @@
  * a pending word (CPU.take_pending in hal.c).
  */
 #define	IRQ_VECTOR_BASE	0x20
+#define	IPI_VECTOR	0x40	/* "you have work queued" */
 #define	SPURIOUS_VECTOR	0xff
 
 /* Model specific registers. */

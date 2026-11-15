@@ -10,6 +10,11 @@ class LAPIC
   ID = 0x20
   TPR = 0x80   # task priority: interrupts below it are held back
   SVR = 0xf0   # spurious interrupt vector, and the enable bit (0x100)
+  ICR_LO = 0x300   # interrupt command: send an interrupt to a CPU
+  ICR_HI = 0x310   # (the destination, in xAPIC mode)
+
+  ICR_PENDING = 1 << 12   # xAPIC: the previous one is still being sent
+  ICR_ASSERT = 1 << 14    # level "assert", which every IPI but one sets
 
   MSR_APIC_BASE = 0x1b
   X2APIC_ENABLED = 1 << 10
@@ -37,6 +42,25 @@ class LAPIC
   def enable
     write(TPR, 0)
     write(SVR, 0x100 | Kern::SPURIOUS_VECTOR)
+  end
+
+  # Interrupt the CPU with the given APIC id (this one too) on vector.
+  def send_ipi(apic_id, vector) = icr(apic_id, ICR_ASSERT | vector)
+
+  private
+
+  # Send an interrupt command: the destination and the low word, which
+  # says what to deliver (fixed delivery of the vector in it, here). In
+  # x2APIC mode both are one 64-bit MSR write; in xAPIC mode writing the
+  # low word sends it, and the delivery status bit says when it has gone.
+  def icr(dest, low)
+    if @x2apic
+      CPU.wrmsr(0x800 + (ICR_LO >> 4), (dest << 32) | low)
+    else
+      write(ICR_HI, dest << 24)
+      write(ICR_LO, low)
+      nil while read(ICR_LO) & ICR_PENDING != 0
+    end
   end
 end
 
