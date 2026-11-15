@@ -17,8 +17,16 @@ concurrency:
 
 jobs:
   test:
+    name: test (${{ matrix.arch }})
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    strategy:
+      # Let one architecture's failure not cancel the other's run.
+      fail-fast: false
+      matrix:
+        arch: [riscv64, amd64]
+    env:
+      ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v7
 
@@ -26,19 +34,20 @@ jobs:
         run: make image
 
       - name: Lint Ruby code
+        if: matrix.arch == 'riscv64'    # the same code for both
         run: ./dmake lint
 
       - name: Build the kernel
-        run: ./dmake -j$(nproc)
+        run: ./dmake ARCH=$ARCH -j$(nproc)
 
       - name: Test with 1 hart
-        run: ./dmake test SMP=1
+        run: ./dmake test ARCH=$ARCH SMP=1
 
       - name: Test with 4 harts
-        run: ./dmake test SMP=4
+        run: ./dmake test ARCH=$ARCH SMP=4
 
       - name: Test with 8 harts
-        run: ./dmake test SMP=8
+        run: ./dmake test ARCH=$ARCH SMP=8
 
-      - name: Test booting through U-Boot and the EFI loader
-        run: ./dmake test SMP=4 BOOT=uefi
+      - name: Test booting through UEFI and the EFI loader
+        run: ./dmake test ARCH=$ARCH SMP=4 BOOT=uefi
