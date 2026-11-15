@@ -50,20 +50,46 @@ arch_set_tls(void *area, size_t size)
 	_set_tls(area);
 }
 
-/* Supervisor trap vector. Only synchronous exceptions can land here. */
+/*
+ * What each exception code in scause means (the privileged specification's
+ * table of them); NULL for codes that are reserved.
+ */
+static const char *const exception_names[20] = {
+	"instruction address misaligned", "instruction access fault",
+	"illegal instruction", "breakpoint", "load address misaligned",
+	"load access fault", "store/AMO address misaligned",
+	"store/AMO access fault", "environment call from U-mode",
+	"environment call from S-mode", NULL, NULL,
+	"instruction page fault", "load page fault", NULL,
+	"store/AMO page fault", NULL, NULL, "software check",
+	"hardware error",
+};
+
+/*
+ * Supervisor trap vector. Only synchronous exceptions can land here: print
+ * what the CPU reported and panic. sepc is the instruction that trapped;
+ * stval, for an access fault, the address it could not access.
+ */
 __attribute__((__interrupt__("supervisor"), __aligned__(4)))
 void
 trap_vector(void)
 {
+	const char *name;
+	uint64_t cause;
+
+	cause = CSR_READ(scause);
+	name = cause < 20 ? exception_names[cause] : NULL;
 	kputs("\n*** exception on hart ");
 	kputhex(this_hartid);
-	kputs(" scause=");
-	kputhex(CSR_READ(scause));
+	kputs(": ");
+	kputs(name != NULL ? name : "reserved");
+	kputs("\n    scause=");
+	kputhex(cause);
 	kputs(" sepc=");
 	kputhex(CSR_READ(sepc));
 	kputs(" stval=");
 	kputhex(CSR_READ(stval));
-	panic("unexpected trap");
+	panic("unexpected exception");
 }
 
 /* Install the trap vector and mask every interrupt source. */
