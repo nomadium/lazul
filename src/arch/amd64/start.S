@@ -1,5 +1,5 @@
 /*
- * Entry point of the kernel, and the boot CPU's stack.
+ * Entry points of the kernel, and the boot CPU's stack.
  *
  *   pvh_start  The boot CPU, entered from QEMU's direct kernel boot
  *              through the PVH boot protocol, which QEMU's firmware
@@ -7,6 +7,11 @@
  *              mode with paging off, flat segments covering all of memory,
  *              interrupts disabled and no stack.
  *              ebx = physical address of the PVH start info (bootinfo.h).
+ *   ap_entry   Every other CPU, from the startup trampoline (trampoline.S),
+ *              already in long mode on the kernel's page tables and on the
+ *              stack Ruby allocated for it.
+ *              rdi = hart id, rsp = the hart's area from
+ *              Kern.alloc_hart_area (src/hal.c), the top of its stack.
  *
  * A PC starts every CPU in 16-bit real mode, as an 8086 would; the
  * firmware has already brought this one to 32-bit protected mode. The
@@ -136,6 +141,18 @@ pvh_long:
 	movl	%eax, %edi		/* boot_main's hart id */
 	call	boot_main
 1:	hlt				/* boot_main does not return */
+	jmp	1b
+
+/*
+ * Every other CPU: on to secondary_main(hartid, area), whose area is
+ * where its stack starts.
+ */
+	.text
+	.globl	ap_entry
+ap_entry:
+	movq	%rsp, %rsi
+	call	secondary_main
+1:	hlt				/* secondary_main does not return */
 	jmp	1b
 
 /*

@@ -24,7 +24,8 @@ ARCH_LDFLAGS := -no-pie -static -Wl,-z,noexecstack \
 
 ARCH_C_SRCS    := src/arch/amd64/arch.c src/arch/amd64/boot.c \
                   src/arch/amd64/irq.c src/arch/amd64/hal.c
-ARCH_ASM_SRCS  := src/arch/amd64/start.S src/arch/amd64/vectors.S
+ARCH_ASM_SRCS  := src/arch/amd64/start.S src/arch/amd64/vectors.S \
+                  src/arch/amd64/trampoline.S
 ARCH_RUBY_SRCS := kernel/arch/amd64/acpi.rb kernel/arch/amd64/platform.rb \
                   kernel/arch/amd64/apic.rb kernel/arch/amd64/arch.rb
 

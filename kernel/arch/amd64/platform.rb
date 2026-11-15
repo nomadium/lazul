@@ -10,12 +10,13 @@ class Platform
 
   UARTInfo = Struct.new(:space, :base, :irq, :name)   # space: :port or :mmio
 
-  attr_reader :boot_info, :acpi, :madt, :fadt, :memory_map, :memory, :uart
+  attr_reader :boot_info, :acpi, :madt, :fadt, :memory_map, :memory, :uart,
+    :trampoline, :harts
 
   def initialize(boot_info, mem = Memory)
     @mem = mem
     @boot_info = boot_info
-    magic, rsdp, map, entries = mem.read_bytes(boot_info, 32).unpack("Q<4")
+    magic, rsdp, map, entries, @trampoline = mem.read_bytes(boot_info, 40).unpack("Q<5")
     raise "bad boot info (magic 0x#{magic.to_s(16)})" unless magic == BOOT_INFO_MAGIC
     @memory_map = read_memory_map(map, entries)
     @memory = free_memory
@@ -23,6 +24,8 @@ class Platform
     @madt = @acpi.madt or raise "no MADT in the ACPI tables"
     @fadt = @acpi.fadt
     @uart = find_uart
+    # The CPUs the firmware enabled, by APIC id: the kernel's hart ids.
+    @harts = @madt.cpus.select(&:enabled).map(&:apic_id).sort
   end
 
   # Who made the machine, as its ACPI tables say (e.g. "BOCHS BXPC" on

@@ -4,9 +4,10 @@
 #
 # The kernel runs on a PC. There is no SBI here: the machine is described
 # by the boot info and the ACPI tables (Platform), device interrupts go
-# through the I/O APICs to a CPU's local APIC (apic.rb), the clock is the
-# CPU's time stamp counter (TSC), timed against the ACPI PM timer, and
-# poweroff and reboot go through ACPI's power management registers.
+# through the I/O APICs to a CPU's local APIC (apic.rb), which also sends
+# IPIs and starts the other CPUs (INIT-SIPI-SIPI), the clock is the CPU's
+# time stamp counter (TSC), timed against the ACPI PM timer, and poweroff
+# and reboot go through ACPI's power management registers.
 #
 # Hart ids are local APIC ids, the numbers the CPUs know themselves by.
 
@@ -66,8 +67,8 @@ module Arch
       ]
     end
 
-    # Only the boot CPU, so far.
-    def harts = [CPU.hartid]
+    # Hart ids (APIC ids) of the CPUs that can run the kernel.
+    def harts = @platform.harts
 
     # The serial console: the one the firmware describes (ACPI SPCR), or
     # COM1.
@@ -89,7 +90,28 @@ module Arch
     # registers them, the boot CPU.
     def enable_interrupts(_hartid, _irqc, _irq) = @lapic.enable
 
-    def start_hart(_id) = false
+    # Wake CPU id with INIT-SIPI-SIPI, the sequence from Intel's
+    # MultiProcessor Specification: INIT resets it, and it then waits for a
+    # STARTUP IPI, which says at which page below 1 MiB to start; a second
+    # one covers a CPU that missed the first. It runs the real-mode
+    # trampoline that SMP.prepare set up there, enters long mode, comes up
+    # in C (ap_entry) on the stack of the area it was given and calls
+    # Kern.hart_started. Returns false if there is no such CPU or it does
+    # not start.
+    def start_hart(id)
+      return false unless @platform.harts.include?(id)
+      raise "no page below 1 MiB for starting CPUs" if @platform.trampoline == 0
+      page_number = SMP.prepare(id, @platform.trampoline, Kern.alloc_hart_area)
+      @lapic.send_init(id)
+      delay_us(10_000)
+      2.times do
+        @lapic.send_startup(id, page_number)
+        return true if wait_us(1_000) { SMP.ready?(id) }
+      end
+      return true if wait_us(100_000) { SMP.ready?(id) }
+      puts "  hart #{id}: did not start"
+      false
+    end
 
     # The hart id is the APIC id.
     def send_ipi(id) = @lapic.send_ipi(id, Kern::IPI_VECTOR)
@@ -155,6 +177,20 @@ module Arch
     end
 
     # 16 bytes a line: address, bytes in hex, and the printable ones.
+    def delay_us(us)
+      t = CPU.tsc + us * @timebase / 1_000_000
+      nil while CPU.tsc < t
+    end
+
+    # Poll until the block is true or us microseconds have passed.
+    def wait_us(us)
+      t = CPU.tsc + us * @timebase / 1_000_000
+      until yield
+        return false if CPU.tsc > t
+      end
+      true
+    end
+
     def hexdump(addr, data)
       (data.bytesize + 15).div(16).times do |i|
         bytes = data.byteslice(16 * i, 16).bytes

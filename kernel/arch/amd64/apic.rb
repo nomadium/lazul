@@ -15,6 +15,8 @@ class LAPIC
 
   ICR_PENDING = 1 << 12   # xAPIC: the previous one is still being sent
   ICR_ASSERT = 1 << 14    # level "assert", which every IPI but one sets
+  ICR_INIT = 0x500        # delivery modes: INIT (reset the CPU)
+  ICR_STARTUP = 0x600     # and STARTUP (run code at a page below 1 MiB)
 
   MSR_APIC_BASE = 0x1b
   X2APIC_ENABLED = 1 << 10
@@ -46,6 +48,8 @@ class LAPIC
 
   # Interrupt the CPU with the given APIC id (this one too) on vector.
   def send_ipi(apic_id, vector) = icr(apic_id, ICR_ASSERT | vector)
+  def send_init(apic_id) = icr(apic_id, ICR_ASSERT | ICR_INIT)
+  def send_startup(apic_id, page_number) = icr(apic_id, ICR_ASSERT | ICR_STARTUP | page_number)
 
   private
 

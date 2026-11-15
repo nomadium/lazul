@@ -12,6 +12,8 @@
 
 #define	MAX_MEMORY	128	/* memory map entries kept from PVH */
 #define	IDENTITY_MAP_END	(4ULL << 30)	/* what arch.c maps */
+#define	PAGE_SIZE	4096
+#define	LOW_MEMORY_END	0x100000	/* where real mode can reach */
 
 static struct boot_info pvh_info;
 static struct boot_memory pvh_memory[MAX_MEMORY];
@@ -39,6 +41,32 @@ find_rsdp(void)
 			return (uintptr_t)p;
 	}
 	return 0;
+}
+
+/*
+ * A page for the other CPUs' startup code (trampoline.S): they start in
+ * real mode, which only reaches the first MiB. The last whole page of the
+ * free memory there, above page 0 (the real-mode interrupt table, which
+ * the BIOS may still want); 0 if there is none.
+ */
+static uint64_t
+find_trampoline(const struct boot_memory *map, uint32_t n)
+{
+	uint64_t end, page = 0;
+	uint32_t i;
+
+	for (i = 0; i < n; i++) {
+		if (map[i].type != BOOT_MEM_FREE ||
+		    map[i].base >= LOW_MEMORY_END)
+			continue;
+		end = map[i].base + map[i].size;
+		if (end > LOW_MEMORY_END)
+			end = LOW_MEMORY_END;
+		end &= ~(uint64_t)(PAGE_SIZE - 1);	/* whole pages only */
+		if (end >= map[i].base + PAGE_SIZE && end >= 2 * PAGE_SIZE)
+			page = end - PAGE_SIZE;
+	}
+	return page;
 }
 
 /*
@@ -80,6 +108,7 @@ pvh_boot_info(uint32_t addr)
 	    find_rsdp();
 	pvh_info.memory_map = (uintptr_t)pvh_memory;
 	pvh_info.memory_map_entries = n;
+	pvh_info.trampoline = find_trampoline(pvh_memory, n);
 	return &pvh_info;
 }
 

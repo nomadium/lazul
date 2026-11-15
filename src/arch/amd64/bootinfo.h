@@ -37,6 +37,7 @@ struct boot_info {
 	uint64_t	acpi_rsdp;	/* the ACPI root pointer */
 	uint64_t	memory_map;	/* a struct boot_memory array */
 	uint64_t	memory_map_entries;
+	uint64_t	trampoline;	/* a free page below 1 MiB, for SMP */
 };
 
 /*

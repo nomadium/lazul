@@ -23,6 +23,12 @@
 #define	COM1		0x3f8	/* the first serial port's I/O base */
 #define	PIC1_DATA	0x21	/* the 8259 interrupt controllers' masks */
 #define	PIC2_DATA	0xa1
+
+/* The local APIC's interrupt command register (xAPIC: MMIO offsets). */
+#define	LAPIC_ICR_LO	0x300
+#define	LAPIC_ICR_HI	0x310
+#define	ICR_ASSERT	(1 << 14)
+#define	ICR_ALL_BUT_SELF	(3 << 18)	/* destination shorthand */
 #define	COM_LSR		5	/* line status register */
 #define	LSR_THR_EMPTY	0x20	/* transmit holding register empty */
 
@@ -68,6 +74,13 @@ static const uint64_t gdt[] = {
 };
 
 static struct idt_gate idt[256];
+
+/*
+ * The hart id of the last CPU to get through arch_cpu_init(), which tells
+ * the CPU starting it (SMP.ready?, hal.c) that it no longer needs the
+ * startup trampoline. CPUs are started one at a time.
+ */
+long cpu_started = -1;
 
 /* Write c to COM1, polled; a newline becomes CR LF for terminals. */
 void
@@ -195,15 +208,16 @@ load_descriptors(void)
 }
 
 /*
- * Load the kernel's descriptors and allow SSE (mruby's floating point
- * code uses it; start.S allowed it already for a direct boot).
+ * Load the kernel's descriptors, allow SSE (mruby's floating point code
+ * uses it; start.S and trampoline.S allowed it already) and put the local
+ * APIC in the boot CPU's mode: the other CPUs start in xAPIC mode. Then
+ * tell the CPU that started this one that it is up.
  */
 void
 arch_cpu_init(long hartid)
 {
-	uint64_t cr0, cr4;
+	uint64_t apic, cr0, cr4;
 
-	(void)hartid;
 	load_descriptors();
 
 	__asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
@@ -212,6 +226,13 @@ arch_cpu_init(long hartid)
 	__asm__ volatile("mov %%cr4, %0" : "=r"(cr4));
 	cr4 |= CR4_OSFXSR | CR4_OSXMMEXCPT;
 	__asm__ volatile("mov %0, %%cr4" :: "r"(cr4));
+
+	apic = rdmsr(MSR_APIC_BASE);
+	if (x2apic_mode && (apic & APIC_BASE_X2APIC) == 0)
+		wrmsr(MSR_APIC_BASE, apic | APIC_BASE_ENABLE |
+		    APIC_BASE_X2APIC);
+
+	__atomic_store_n(&cpu_started, hartid, __ATOMIC_RELEASE);
 }
 
 /*
@@ -261,8 +282,20 @@ arch_halt(void)
 		__asm__ volatile("cli; hlt");
 }
 
-/* Only the boot CPU runs so far. */
+/*
+ * An IPI to every other CPU at once, with the "all but self" destination
+ * shorthand of the local APIC's interrupt command register. CPUs that were
+ * never started are not woken by it.
+ */
 void
 arch_stop_others(void)
 {
+	uint32_t low = ICR_ALL_BUT_SELF | ICR_ASSERT | IPI_VECTOR;
+
+	if (x2apic_mode) {
+		wrmsr(MSR_X2APIC_ICR, low);
+	} else if (lapic_mmio != 0) {
+		*(volatile uint32_t *)(lapic_mmio + LAPIC_ICR_HI) = 0;
+		*(volatile uint32_t *)(lapic_mmio + LAPIC_ICR_LO) = low;
+	}
 }

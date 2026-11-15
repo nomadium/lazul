@@ -39,7 +39,9 @@
 /* Model specific registers. */
 #define	MSR_APIC_BASE	0x1b		/* where the local APIC is, its mode */
 #define	APIC_BASE_X2APIC	(1 << 10)	/* registers are MSRs */
+#define	APIC_BASE_ENABLE	(1 << 11)	/* the local APIC is on */
 #define	MSR_X2APIC_EOI	0x80b		/* end of interrupt, in x2APIC mode */
+#define	MSR_X2APIC_ICR	0x830		/* interrupt command, x2APIC mode */
 #define	MSR_EFER	0xc0000080	/* extended features */
 #define	EFER_LME	(1 << 8)	/* long mode enable */
 #define	MSR_FS_BASE	0xc0000100	/* the FS base: the thread pointer */
@@ -89,6 +91,9 @@ struct boot_info;
 extern __thread uint64_t irq_pending;
 extern int x2apic_mode;
 extern uintptr_t lapic_mmio;
+
+/* arch.c */
+extern long cpu_started;
 
 /* boot.c */
 uintptr_t	boot_free_ram_end(const struct boot_info *, uintptr_t);
